@@ -1,0 +1,2446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ship Pivot Point Simulator v1.16</title>
+<style>
+  :root{
+    --bg:#07131d; --panel:#0e2436; --panel2:#122c40; --line:#1d4763; --line2:#2b5b7c;
+    --ink:#e8f1f8; --muted:#8fb2c9; --dim:#6d92ac;
+    --accent:#2f6f5e; --accent2:#3f9a80;
+    --sea1:#0b1f30; --sea2:#153a52;
+    --bow:#2fbf7f; --stern:#4d9fe0; --pp:#ff914d; --traj:#ffd166; --circ:#7ee8fa;
+    --mono:ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,'DejaVu Sans Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,'Segoe UI',Arial,sans-serif;
+    background:radial-gradient(1100px 620px at 84% -12%,#0e2c40 0%,transparent 62%),
+               radial-gradient(780px 520px at -4% 108%,#0d2b34 0%,transparent 60%),var(--bg);}
+  .wrap{max-width:1460px;margin:0 auto;padding:24px 24px 46px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:18px;flex-wrap:wrap}
+  h1{margin:0;font-size:26px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:6px 0 0;font-size:13.5px}
+  .badge{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:#9fe0cb;
+    border:1px solid #2c6a5c;background:#0f2f28;padding:9px 13px;border-radius:999px;white-space:nowrap}
+
+  /* ---- layout A: the chart on top, the plan in the centre, the controls in a narrow column ---- */
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 376px;gap:16px;align-items:start}
+  .chartbox{grid-column:1/-1;grid-row:1}
+  .planbox{grid-column:1;grid-row:2}
+  .ctl    {grid-column:2;grid-row:2}
+  .sched  {grid-column:1/-1;grid-row:3}
+  .schemebox{grid-column:1/-1;grid-row:4}
+  .metbox {grid-column:1;grid-row:5}
+  .notebox {grid-column:2;grid-row:5}
+  .notefull{grid-column:1/-1;grid-row:6}
+  .notefull .note{columns:2;column-gap:36px}
+
+  .card{background:linear-gradient(180deg,var(--panel),#0b1e2d);border:1px solid var(--line);
+    border-radius:14px;padding:13px 15px 14px;box-shadow:0 10px 30px -18px #000}
+  .card > h2{margin:0 0 10px;font:600 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .card > h2 span{font-weight:400;letter-spacing:.02em;text-transform:none;font-size:12px;color:var(--dim)}
+
+  .sea{background:linear-gradient(150deg,var(--sea1),var(--sea2));border:1px solid #17405c;border-radius:11px;padding:8px;position:relative;overflow:hidden}
+  .sea svg{width:100%;display:block;cursor:grab;touch-action:none}
+  .sea svg.panning{cursor:grabbing}
+  .cap{font-size:12.5px;color:var(--dim);margin:9px 2px 0;line-height:1.55}
+
+  /* ---- zoom / pan controls of the manoeuvre plan (v1.10) ---- */
+  .zoom-ctl{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:4px;z-index:5}
+  .zoom-ctl button{width:32px;height:32px;padding:0;border-radius:8px;background:#0e2436cc;border:1px solid var(--line2);
+    color:var(--ink);font:600 16px/1 var(--mono);cursor:pointer;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center}
+  .zoom-ctl button:hover{background:#17384fcc;border-color:var(--accent2)}
+  .zoom-ctl button:active{background:var(--accent)}
+  .zoom-ctl .zoom-label{font:600 10px/1 var(--mono);color:var(--dim);text-align:center;margin-top:2px;letter-spacing:.04em}
+  .zoom-hint{position:absolute;left:14px;bottom:12px;font:11px/1.3 var(--mono);color:var(--dim);background:#0e2436aa;
+    padding:4px 8px;border-radius:6px;pointer-events:none;opacity:.85;backdrop-filter:blur(4px)}
+
+  /* ---- control panel: instruments instead of sliders ---- */
+  .dgroup{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  .dgroup:first-of-type{border-top:0;margin-top:0;padding-top:0}
+  .dh{font:600 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--accent2);margin-bottom:10px}
+  .inst{margin:11px 0}
+  .inst:first-child{margin-top:0}
+  .lab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px;color:var(--muted)}
+  .lab .val{font:600 15px/1.2 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .lab .val u{text-decoration:none;font-size:10.5px;color:var(--dim);margin-left:2px}
+  .srow{display:flex;align-items:center;gap:8px;margin-top:7px}
+  .stp{width:26px;height:26px;flex:none;padding:0;border-radius:7px;background:#102a3c;color:var(--muted);
+    border:1px solid var(--line2);font:600 15px/1 var(--mono);cursor:pointer}
+  .stp:hover{background:#17384f;color:var(--ink);border-color:var(--accent2)}
+  .stp:active{background:var(--accent);color:#fff}
+  input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:22px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:#1b4260}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;margin-top:-5.5px;border-radius:50%;
+    background:#e8f1f8;border:3px solid var(--accent2);box-shadow:0 0 0 3px #2f6f5e22}
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 4px #3f9a8055}
+  input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:#1b4260}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#e8f1f8;border:3px solid var(--accent2)}
+  .seg{display:flex;gap:3px;background:#0a1d2b;border:1px solid var(--line);border-radius:9px;padding:3px;margin-top:8px}
+  .seg button{flex:1;background:transparent;border:0;color:var(--muted);font:500 12.5px/1 system-ui,sans-serif;
+    padding:7px 4px;border-radius:7px;cursor:pointer;white-space:nowrap}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .switch{width:42px;height:22px;border-radius:12px;background:#0a1d2b;border:1px solid var(--line2);
+    position:relative;cursor:pointer;display:inline-block;flex:none;transition:.15s}
+  .switch i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dim);transition:.15s}
+  .switch.on{background:var(--accent);border-color:var(--accent2)}
+  .switch.on i{left:22px;background:#fff}
+  .sr{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;padding:0;border:0}
+
+  .presets{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+  button{padding:8px 13px;background:#11293a;border:1px solid var(--line2);border-radius:9px;cursor:pointer;
+    color:var(--ink);font:500 13.5px/1.2 system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
+  button:hover{background:#17384f;border-color:var(--accent2)}
+  .presets button{font-size:12.5px;padding:8px 11px}
+
+  /* ---- v1.15: save / load panel, course stepper ---- */
+  .savegrid{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px}
+  .savegrid input[type=text],.savegrid select{background:#0a1d2b;color:var(--ink);
+    border:1px solid var(--line2);border-radius:8px;padding:8px 10px;
+    font:12.5px var(--mono);flex:1;min-width:120px}
+  .savegrid input[type=text]:focus,.savegrid select:focus{outline:none;border-color:var(--accent2)}
+  .savegrid button{font-size:12.5px;padding:8px 11px;white-space:nowrap}
+  .savegrid .grow{flex:1;min-width:130px}
+  #hdgUp,#hdgDown{padding:4px 9px;font:600 11px/1.3 var(--mono);min-width:26px}
+
+  /* ---- legend, metrics, roller ---- */
+  .legend{display:flex;flex-wrap:wrap;gap:5px 15px;margin:0 2px 9px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:16px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:middle;margin-right:6px}
+  .result{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .metric{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#0b1e2d}
+  .metric small{display:block;color:var(--dim);margin-bottom:3px;font-size:11.5px;letter-spacing:.02em}
+  .metric strong{font:600 13.5px/1.3 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+  .roller{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+  .rcell{background:#0b1e2d;border:1px solid var(--line);border-radius:9px;padding:7px 9px;font:11.5px/1.45 var(--mono);
+    color:var(--muted);font-variant-numeric:tabular-nums}
+  .rcell b{display:block;color:var(--ink);font-size:12.5px;margin-bottom:2px}
+  .rcell.off{opacity:.38}
+  .rcell.mark{border-color:#a8862f;background:#2a2310}
+
+  /* ---- schedule ---- */
+  .timeline{position:relative;height:56px;background:#0a1d2b;border:1px solid var(--line);border-radius:10px;margin:2px 0 12px;cursor:crosshair;overflow:hidden}
+  .tl-track{position:absolute;left:10px;right:10px;top:34px;height:3px;background:#1d4763;border-radius:2px}
+  .tl-tick{position:absolute;top:29px;width:1px;height:10px;background:#1d4763}
+  .tl-lab{position:absolute;top:42px;font-size:10.5px;color:var(--dim);transform:translateX(-50%)}
+  .tl-mark{position:absolute;top:5px;transform:translateX(-50%);cursor:pointer;text-align:center}
+  .tl-mark:first-child{transform:translateX(-4px)}
+  .tl-mark .dot{width:12px;height:12px;border-radius:50%;margin:0 auto;background:#ff8b40;border:2px solid #0e2436;box-shadow:0 0 0 1px #ff8b40}
+  .tl-mark.sel .dot{background:var(--accent2);box-shadow:0 0 0 1px var(--accent2)}
+  .tl-mark .lb{font:600 11px/1.2 var(--mono);color:var(--ink);white-space:nowrap;margin-top:1px}
+  .schedtbl{width:100%;border-collapse:collapse;font-size:13.5px}
+  .schedtbl th{text-align:left;color:var(--muted);font-weight:600;padding:5px 7px;border-bottom:1px solid var(--line);
+    font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .schedtbl td{padding:5px 7px;border-bottom:1px solid #123047;font-variant-numeric:tabular-nums}
+  .schedtbl tr.sel td{background:#2a2310}
+  .schedtbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--traj)}
+  .schedtbl input{width:80px;font:inherit;font-size:13px;padding:5px 7px;border:1px solid var(--line2);border-radius:7px;
+    background:#0a1d2b;color:var(--ink)}
+  .schedtbl input:focus{outline:none;border-color:var(--accent2)}
+  .schedtbl button{padding:3px 10px;font-size:12.5px}
+  .schedtbl input.m-in,.schedtbl input.sec-in{width:54px;text-align:center}
+  .schedtbl .colon{color:var(--dim);font-weight:600;padding:0 1px}
+  .schedtbl .eq{display:block;font-size:11px;color:var(--dim);white-space:nowrap;padding-top:2px;font-family:var(--mono)}
+  .schedtbl tr.sel .eq{color:#d9bd6a}
+  .schedtbl .tcell{white-space:nowrap}
+  .schedtbl .trow{display:flex;align-items:center;gap:4px}
+  .schedtbl .trow input{width:50px}
+  .row{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:12px}
+  .hint{font-size:12.5px;color:var(--dim)}
+  #addEvent{background:var(--accent);border-color:var(--accent2);color:#fff}
+  #addEvent:hover{background:var(--accent2)}
+
+  .note{font-size:13px;color:var(--muted);line-height:1.65;margin:0}
+  .notefull .note br{content:"";display:block;margin-bottom:.6em}
+  .note b{color:var(--ink);font-weight:600}
+  .note i{color:#bcd6e6}
+
+  /* ---- v1.9: chart panel (real map, Web Mercator tiles) ---- */
+  .charttools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .grp{display:flex;align-items:center;gap:7px;background:#0a1d2b;border:1px solid var(--line);
+    border-radius:9px;padding:6px 9px}
+  .grp>label{font:600 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+  .grp select{background:#0a1d2b;color:var(--ink);border:1px solid var(--line2);border-radius:7px;
+    padding:4px 6px;font:12.5px var(--mono);max-width:190px}
+  .grp button{padding:5px 10px;font:600 12.5px/1.1 var(--mono)}
+  .grp input[type=range]{width:110px}
+  .grp .val{font:600 13px/1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
+  .chartsea{padding:0;overflow:hidden;background:#081826;border-radius:11px;position:relative}
+  .chartsea svg{width:100%;display:block;height:min(74vh,780px);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+  .chartsea svg.dragging{cursor:grabbing}
+  .chartsea svg.moveship{cursor:crosshair}
+  .chartsea svg.moveship.dragging{cursor:crosshair}
+  .chartsea .mode{position:absolute;left:10px;top:10px;z-index:4;pointer-events:none}
+  .chartsea .mode.ship{color:#ffd8a6;border-color:#6b5330;background:#2b2116}
+  .chartread{display:flex;flex-wrap:wrap;gap:5px 20px;margin:10px 2px 0;font:12.5px/1.6 var(--mono);
+    color:var(--muted);font-variant-numeric:tabular-nums}
+  .chartread b{color:var(--ink);font-weight:600}
+  .chartread .k{color:var(--dim);letter-spacing:.08em;text-transform:uppercase;font-size:10.5px}
+  .mapnote{font-size:12.5px;color:var(--dim);margin:8px 2px 0;line-height:1.55}
+  .mapnote a{color:var(--dim);text-decoration:underline}
+  .grefgrid{display:grid;grid-template-columns:auto 1fr 1fr auto 1fr 1fr auto;gap:8px;align-items:center;margin-top:8px}
+  .grefgrid input{width:118px;background:#0a1d2b;color:var(--ink);border:1px solid var(--line2);border-radius:7px;
+    padding:5px 7px;font:12.5px var(--mono)}
+  .grefgrid input:focus{outline:none;border-color:var(--accent2)}
+  .grefgrid .pl{font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent2)}
+  .pickmode{border-color:var(--traj) !important;box-shadow:0 0 0 1px var(--traj)}
+  .badge.off{color:#ffb4a2;border-color:#6a3a3a;background:#2a1616}
+  .badge.on{color:#9fe0cb;border-color:#2c6a5c;background:#0f2f28}
+
+  @media(max-width:1180px){
+    .layout{grid-template-columns:minmax(0,1fr)}
+    .chartbox,.planbox,.ctl,.metbox,.sched,.schemebox,.notebox{grid-column:1;grid-row:auto}
+    .result{grid-template-columns:repeat(4,1fr)}
+  }
+  @media(max-width:760px){
+    .result{grid-template-columns:1fr 1fr}
+    .roller{grid-template-columns:repeat(3,1fr)}
+    .wrap{padding:16px 14px 34px}
+    h1{font-size:22px}
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div>
+      <h1>Ship Pivot Point Simulator</h1>
+      <p class="sub">Rigid-body kinematics · pivot point, turn radius and predicted manoeuvre · v1.16 · real chart overlay · free map panning · vessel placed by mouse · switchable layers · zoomable plan · online and offline</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="badge on" id="mapBadge">Map: online</div>
+      <div class="badge">Layout A · chart + plan</div>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <section class="card chartbox">
+      <h2>Chart <span>(real map · Web Mercator · vessel to true scale)</span></h2>
+      <div class="charttools">
+        <div class="grp"><label>Base</label>
+          <select id="mapLayer">
+            <option value="osm">OpenStreetMap</option>
+            <option value="opentopo">OpenTopoMap</option>
+            <option value="esri">ESRI World Imagery</option>
+            <option value="seamark">OpenSeaMap seamark</option>
+            <option value="harbour">OpenSeaMap harbour</option>
+          </select>
+        </div>
+        <div class="grp"><label>Overlay</label>
+          <select id="mapOverlay">
+            <option value="seamark">OpenSeaMap seamark</option>
+            <option value="harbour">OpenSeaMap harbour</option>
+            <option value="">none</option>
+          </select>
+        </div>
+        <div class="grp"><label>Zoom</label>
+          <button id="mapZout" title="zoom out">−</button>
+          <output id="mapZval" class="val"></output>
+          <button id="mapZin" title="zoom in">+</button>
+        </div>
+        <div class="grp"><label>Horizon</label>
+          <button id="horizOut" title="−1 min">−</button>
+          <input id="horizTop" type="range" min="0" max="30" step="1" value="6" style="width:90px">
+          <output id="horizTopVal" class="val">6 min</output>
+          <button id="horizIn" title="+1 min">+</button>
+        </div>
+        <div class="grp"><label>Opacity</label>
+          <input id="mapOpacity" type="range" min="20" max="100" step="5" value="90">
+          <output id="mapOpacityVal" class="val"></output>
+        </div>
+        <div class="grp"><label>Start position</label>
+          <input id="mapLat" type="text" inputmode="decimal" value="56.9496" title="latitude of ship start, °N">
+          <input id="mapLon" type="text" inputmode="decimal" value="24.1052" title="longitude of ship start, °E">
+          <span class="hint">lat / lon</span>
+        </div>
+        <div class="grp"><label>Nudge ship</label>
+          <button id="nudgeN" title="move ship 50 m north">N</button>
+          <button id="nudgeS" title="move ship 50 m south">S</button>
+          <button id="nudgeE" title="move ship 50 m east">E</button>
+          <button id="nudgeW" title="move ship 50 m west">W</button>
+        </div>
+        <div class="grp"><label>Course</label>
+          <input id="mapHdg" type="text" inputmode="decimal" value="0" title="initial course, ° true">
+          <button id="hdgUp" title="course +1° (Shift: +5°)">▲</button>
+          <button id="hdgDown" title="course −1° (Shift: −5°)">▼</button>
+          <span class="hint">°true</span>
+        </div>
+        <div class="grp"><label>Find</label>
+          <input id="mapFind" type="text" placeholder="port or place" style="width:150px">
+          <button id="mapFindGo">Go</button>
+        </div>
+        <div class="grp"><label>Offline</label><span class="switch" data-switch="mapOffline"><i></i></span></div>
+        <div class="grp"><label>Vessel</label><span class="switch" data-switch="mapMoveShip"><i></i></span></div>
+        <div class="grp"><button id="mapFit">Fit manoeuvre</button><button id="mapShip">Centre on ship</button></div>
+        <div class="grp"><button id="mapCache">Cache this view</button><span id="mapCacheStat" class="hint">—</span></div>
+      </div>
+      <div class="sea chartsea" id="chartSea">
+        <div class="badge mode on" id="chartMode">Chart: pan</div>
+        <svg id="chartSvg" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet" role="img"
+             aria-label="Manoeuvre chart: the vessel and its predicted track drawn on a real map"></svg>
+      </div>
+      <div class="chartread" id="chartRead"></div>
+      <p class="mapnote" id="mapNote">Enter an approximate <b>lat / lon</b> of the starting point. Wheel — zoom ·
+        <b>drag</b> — move the map freely · <b>Vessel</b> switch (or <b>Shift+drag</b>) — move the vessel: its new
+        position is written into the latitude/longitude fields and into the link, so it stays exactly where you put it.
+        <b>N / S / E / W</b> nudge the vessel’s start position by 50 m without moving the view.
+        The chart is north-up, the vessel keeps its true size, course and track. Use <b>Cache this view</b> to
+        download the tiles of the present view, then switch <b>Offline</b> on: the chart is then drawn from the
+        disk cache only, with no network at all.</p>
+      <p class="mapnote" id="mapAttr">Map data © <a href="https://www.openstreetmap.org/copyright"
+        target="_blank" rel="noopener">OpenStreetMap contributors</a> · seamarks and harbour marks ©
+        <a href="https://www.openseamap.org" target="_blank" rel="noopener">OpenSeaMap</a></p>
+
+      <div class="dgroup" id="mapOwn">
+        <div class="dh">Own chart · PNG / JPG with two-point georeference</div>
+        <div class="charttools">
+          <input type="file" id="mapFile" accept="image/png,image/jpeg" title="Load a chart image">
+          <button id="mapClear">Remove own chart</button>
+          <span class="hint" id="mapFileInfo">No own chart loaded.</span>
+        </div>
+        <div class="grefgrid" id="grefGrid" style="display:none">
+          <span class="pl">Point 1</span>
+          <input id="g1lat" type="text" inputmode="decimal" placeholder="lat °N">
+          <input id="g1lon" type="text" inputmode="decimal" placeholder="lon °E">
+          <span class="pl">Point 2</span>
+          <input id="g2lat" type="text" inputmode="decimal" placeholder="lat °N">
+          <input id="g2lon" type="text" inputmode="decimal" placeholder="lon °E">
+          <span style="display:flex;gap:6px"><button id="grefApply">Apply</button><button id="grefCancel">Cancel</button></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card planbox">
+      <h2>Manoeuvre plan <span>(true scale, metres)</span></h2>
+      <div class="legend" id="legend"></div>
+      <div class="sea" id="planSea">
+        <svg id="planSvg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Manoeuvre plan to scale with turning circle and predicted track"></svg>
+        <div class="zoom-ctl">
+          <button id="zoomIn" title="Zoom in (wheel up)">+</button>
+          <button id="zoomOut" title="Zoom out (wheel down)">−</button>
+          <button id="zoomReset" title="Reset view">↺</button>
+          <div class="zoom-label" id="zoomLabel">100%</div>
+        </div>
+        <div class="zoom-hint">Scroll to zoom · Drag to pan</div>
+      </div>
+    </section>
+
+    <aside class="card ctl">
+      <h2>Control panel</h2>
+
+      <div class="dgroup">
+        <div class="dh">Vessel</div>
+        <div class="inst">
+          <div class="lab"><span>Length</span><output id="Lval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="L" data-d="-5" title="−5 m">−</button>
+            <input id="L" type="range" min="50" max="350" step="5" value="180">
+            <button class="stp" data-step="L" data-d="5" title="+5 m">+</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Beam</span><output id="beamval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="beam" data-d="-1" title="−1 m">−</button>
+            <input id="beam" type="range" min="6" max="45" step="1" value="16">
+            <button class="stp" data-step="beam" data-d="1" title="+1 m">+</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Centre of gravity (from stern)</span><output id="lcgval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="lcg" data-d="-1" title="−1 %">−</button>
+            <input id="lcg" type="range" min="30" max="70" step="1" value="55">
+            <button class="stp" data-step="lcg" data-d="1" title="+1 %">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dgroup">
+        <div class="dh">Manoeuvre</div>
+        <div class="inst">
+          <div class="lab"><span>Transverse, bow</span><output id="bowval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="bow" data-d="-0.1" title="−0.1 kn">−</button>
+            <input id="bow" type="range" min="-5" max="5" step="0.1" value="1.5">
+            <button class="stp" data-step="bow" data-d="0.1" title="+0.1 kn">+</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Transverse, stern</span><output id="sternval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="stern" data-d="-0.1" title="−0.1 kn">−</button>
+            <input id="stern" type="range" min="-5" max="5" step="0.1" value="-0.8">
+            <button class="stp" data-step="stern" data-d="0.1" title="+0.1 kn">+</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Longitudinal</span><output id="surgeval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="surge" data-d="-0.1" title="−0.1 kn">−</button>
+            <input id="surge" type="range" min="-5" max="15" step="0.1" value="5">
+            <button class="stp" data-step="surge" data-d="0.1" title="+0.1 kn">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dgroup">
+        <div class="dh">Forecast &amp; view</div>
+        <div class="inst">
+          <div class="lab"><span>Prediction horizon</span><output id="horizval" class="val"></output></div>
+          <div class="srow">
+            <button class="stp" data-step="horiz" data-d="-1" title="−1 min">−</button>
+            <input id="horiz" type="range" min="0" max="30" step="1" value="6">
+            <button class="stp" data-step="horiz" data-d="1" title="+1 min">+</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Plan detail</span></div>
+          <div class="seg" data-seg="planMode">
+            <button data-v="full" class="on">Full plan</button>
+            <button data-v="clean">Clean manoeuvre</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Plan scale</span></div>
+          <div class="seg" data-seg="fit">
+            <button data-v="maneuver" class="on">Manoeuvre</button>
+            <button data-v="circle">Circle</button>
+            <button data-v="ship">Ship</button>
+          </div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Velocities on ghost ships</span><span class="switch on" data-switch="ghostVec"><i></i></span></div>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Layers</span></div>
+          <div class="lab" style="margin-top:6px"><span>Turning circles</span><span class="switch on" data-switch="showCircles"><i></i></span></div>
+          <div class="lab" style="margin-top:6px"><span>Pivot points</span><span class="switch on" data-switch="showPP"><i></i></span></div>
+          <div class="lab" style="margin-top:6px"><span>PP on ghost ships</span><span class="switch on" data-switch="showGhostPP"><i></i></span></div>
+          <div class="lab" style="margin-top:6px"><span>Velocity vectors</span><span class="switch on" data-switch="showVec"><i></i></span></div>
+          <div class="lab" style="margin-top:6px"><span>Schedule marks</span><span class="switch on" data-switch="showEvents"><i></i></span></div>
+        </div>
+      </div>
+
+      <div class="dgroup">
+        <div class="dh">Save / Load</div>
+        <div class="savegrid">
+          <input id="manName" type="text" placeholder="name of the manoeuvre" maxlength="60">
+          <button id="saveServer" title="save into the library of this computer">Save to library</button>
+        </div>
+        <div class="savegrid">
+          <select id="manList" class="grow" title="manoeuvres kept in the library of this computer"></select>
+          <button id="loadServer">Load</button>
+          <button id="delServer" title="remove the selected manoeuvre from the library">Delete</button>
+        </div>
+        <div class="presets">
+          <button id="saveLocal" title="keep a copy in this browser only">Local copy</button>
+          <button id="loadLocal" title="load the copy kept in this browser">Load local copy</button>
+          <button id="downloadMan" title="save the manoeuvre as a JSON file">Save to file…</button>
+          <label style="margin:0"><input type="file" id="loadFile" accept=".json" style="display:none"><button id="loadFileBtn" type="button">From file…</button></label>
+        </div>
+        <div class="inst">
+          <div class="lab"><span>Restore last session on start</span><span class="switch on" data-switch="autoRestore"><i></i></span></div>
+        </div>
+        <div class="hint" id="saveHint" style="margin-top:8px">—</div>
+      </div>
+
+      <select id="fit" class="sr" tabindex="-1" aria-hidden="true">
+        <option value="maneuver">Fit the manoeuvre</option>
+        <option value="circle">Fit the turning circle</option>
+        <option value="ship">Fit the ship only</option>
+      </select>
+      <select id="planMode" class="sr" tabindex="-1" aria-hidden="true">
+        <option value="full">Full plan (with construction)</option>
+        <option value="clean">Clean manoeuvre (how it turns)</option>
+      </select>
+      <input id="ghostVec" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="showCircles" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="showPP" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="showGhostPP" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="showVec" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="showEvents" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="autoRestore" type="checkbox" class="sr" tabindex="-1" aria-hidden="true" checked>
+      <input id="mapOffline" type="checkbox" class="sr" tabindex="-1" aria-hidden="true">
+      <input id="mapMoveShip" type="checkbox" class="sr" tabindex="-1" aria-hidden="true">
+    </aside>
+
+    <section class="card sched">
+      <h2>Manoeuvre schedule <span>(change of bow / stern / longitudinal velocity at a given time)</span></h2>
+      <div class="timeline" id="timeline" title="Click on the timeline to insert a change">
+        <div class="tl-track"></div>
+        <div id="tlTicks"></div>
+        <div id="tlMarks"></div>
+      </div>
+      <table class="schedtbl">
+        <thead><tr><th>time, min : s</th><th>bow, kn</th><th>stern, kn</th><th>long., kn</th><th>yaw rate</th><th></th></tr></thead>
+        <tbody id="schedBody"></tbody>
+      </table>
+      <div class="row">
+        <button id="addEvent">+ Add change</button>
+        <button id="delEvent">Delete change</button>
+        <button id="resetSched">Reset schedule</button>
+        <button id="reset" title="return everything to the initial state: vessel, horizon, view and schedule">↺ Reset all</button>
+        <span class="hint" id="schedHint"></span>
+      </div>
+    </section>
+
+    <section class="card metbox">
+      <h2>Readout</h2>
+      <div class="result">
+        <div class="metric"><small>PP from bow</small><strong id="mPpBow">—</strong></div>
+        <div class="metric"><small>PP from stern</small><strong id="mPpStern">—</strong></div>
+        <div class="metric"><small>PP location</small><strong id="mPpLoc">—</strong></div>
+        <div class="metric"><small>Yaw rate</small><strong id="mRot">—</strong></div>
+        <div class="metric"><small>Transverse vel. at CG</small><strong id="mSway">—</strong></div>
+        <div class="metric"><small>Turn radius of CG</small><strong id="mR">—</strong></div>
+        <div class="metric"><small>Tactical diameter 2R</small><strong id="mD">—</strong></div>
+        <div class="metric"><small>Advance / heading at horizon</small><strong id="mAdv">—</strong></div>
+      </div>
+    </section>
+
+    <section class="card schemebox">
+      <h2>Kinematic scheme <span>(schematic, not to scale)</span></h2>
+      <div class="sea">
+        <svg id="kinSvg" viewBox="0 0 700 340" role="img" aria-label="Ship with transverse velocity vectors and pivot point">
+          <defs>
+            <pattern id="grid" width="35" height="35" patternUnits="userSpaceOnUse">
+              <path d="M35 0H0V35" fill="none" stroke="#7293a5" stroke-opacity=".12"/>
+            </pattern>
+          </defs>
+          <rect width="700" height="340" fill="url(#grid)"/>
+          <text x="16" y="96"  fill="#c8d9e7" font-size="13">PORT</text>
+          <text x="16" y="258" fill="#c8d9e7" font-size="13">STARBOARD</text>
+          <text x="40" y="30"  fill="#c8d9e7" font-size="15">STERN</text>
+          <text x="660" y="30" text-anchor="end" fill="#c8d9e7" font-size="15">BOW →</text>
+
+          <!-- hull: length L is drawn between the reference stations X_S and X_B -->
+          <path id="hull" d="" fill="#c8d4dd" stroke="#edf4f8" stroke-width="3"/>
+          <path id="deck" d="" fill="#829eaf" stroke="#f1f5f9"/>
+          <rect id="house1" x="0" y="0" width="0" height="0" rx="5" fill="#334e62" stroke="#d9e4ec"/>
+          <rect id="house2" x="0" y="0" width="0" height="0" rx="5" fill="#607b8b"/>
+          <path d="M0 170H700" stroke="#fff" stroke-opacity=".5" stroke-dasharray="7 7"/>
+
+          <circle id="cgDot" r="7" fill="#facc15" stroke="#1e293b" stroke-width="2"/>
+          <text id="cgTxt" fill="#facc15" font-size="16" text-anchor="middle">CG</text>
+
+          <g id="ppGroup">
+            <circle id="ppHalo" r="19" fill="#ff8b40" fill-opacity=".17" stroke="#ff9a54" stroke-dasharray="4 5"/>
+            <circle id="ppDot"  r="7" fill="#ff914d" stroke="#fff" stroke-width="2"/>
+            <text id="ppTxt"  fill="#ffb77d" font-size="17" font-weight="bold" text-anchor="middle">PP</text>
+            <path id="ppStem" stroke="#ffb77d" stroke-dasharray="3 5"/>
+          </g>
+
+          <path id="connector" stroke="#d8e5ed" stroke-width="1.5" stroke-opacity=".45" stroke-dasharray="6 7" fill="none"/>
+          <path id="sternLine" stroke="#72baff" stroke-width="4" stroke-linecap="round"/>
+          <path id="sternHead" stroke="#72baff" stroke-width="3" fill="none"/>
+          <text id="sternVal" fill="#72baff" font-size="14" text-anchor="middle"></text>
+          <path id="bowLine" stroke="#5de5a5" stroke-width="4" stroke-linecap="round"/>
+          <path id="bowHead" stroke="#5de5a5" stroke-width="3" fill="none"/>
+          <text id="bowVal" fill="#5de5a5" font-size="14" text-anchor="middle"></text>
+          <path id="uLine" stroke="#e7f0fa" stroke-width="3"/>
+          <path id="uHead" stroke="#e7f0fa" stroke-width="3" fill="none"/>
+          <text id="uLabel" x="350" y="318" fill="#e7f0fa" font-size="15" text-anchor="middle"></text>
+          <text id="outNote" x="350" y="58" text-anchor="middle" fill="#ffb77d" font-size="14"></text>
+        </svg>
+      </div>
+      <p class="cap">The dashed line joins the tips of the transverse velocity vectors; its intersection with the centreline is the pivot point (PP) — the station with zero transverse velocity. The scheme shows the condition of the schedule entry selected below.</p>
+    </section>
+
+    <section class="card notebox">
+      <h2>Model</h2>
+      <p class="note">
+        <b>Model.</b> Rigid-body kinematics in the horizontal plane. With bow transverse velocity <i>v<sub>bow</sub></i>, stern
+    <i>v<sub>stern</sub></i>, length <i>L</i> and LCG at λ<i>L</i>: yaw rate ω = (<i>v<sub>bow</sub></i> − <i>v<sub>stern</sub></i>)/<i>L</i>
+    (shown in °/min), sway at CG = <i>v<sub>stern</sub></i> + λ(<i>v<sub>bow</sub></i> − <i>v<sub>stern</sub></i>), speed of CG
+    <i>V</i> = √(<i>u</i>² + <i>v</i><sub>CG</sub>²) and turn radius <i>R</i> = <i>V</i>/|ω|.
+    The pivot point is the station of zero transverse velocity, PP = <i>L</i>·<i>v<sub>bow</sub></i>/(<i>v<sub>bow</sub></i> − <i>v<sub>stern</sub></i>) from the bow.<br><br><b>Prediction.</b> While the velocities are held constant in the body frame, the manoeuvre is an <b>exact</b> circular arc:
+    ψ(t) = ωt, X(t) = (u/ω)(sin ψ − sin ψ₀) + (v<sub>CG</sub>/ω)(cos ψ − cos ψ₀),
+    Y(t) = (u/ω)(cos ψ₀ − cos ψ) + (v<sub>CG</sub>/ω)(sin ψ − sin ψ₀).
+    The turning circle centre is C = P₀ + (1/ω)·R(ψ₀)·(−v<sub>CG</sub>, u).<br><br><b>Scope.</b> Positive transverse velocity is to port, longitudinal velocity <i>u</i> does not move the PP.
+    This is a kinematic model, not a hydrodynamic one: the inputs are already the <i>result</i> of the forces, not the forces themselves.
+    If the bow and stern transverse velocities are equal there is no yaw and no finite PP can be determined.
+      </p>
+    </section>
+
+    <section class="card notefull">
+      <p class="note">
+        <b>Ghost ships.</b> The ghost ships are the positions of the vessel one minute, two minutes … up to the prediction horizon.
+    The yaw rate is given in degrees per minute.<br><br><b>Plan view.</b> The plan can be shown as a full plan (turning circles, turn centres, pivot points, marks of the scheduled changes)
+    or as a clean manoeuvre, where only the track, the vessel every minute and the velocities are left. Every element of the plan can also be
+    switched on and off separately under <b>Layers</b> in the control panel: turning circles, pivot points, pivot points on the ghost ships,
+    velocity vectors and marks of the scheduled changes. The velocities may be drawn on the
+    ghost ships as well: the transverse velocity of the bow (green), of the stern (blue) and the longitudinal velocity of the centre of
+    gravity (white); after a scheduled change the set of velocities changes accordingly. The length of the arrows is common to the whole plan.<br><br><b>Schedule.</b> The manoeuvre may contain changes of the velocity set at any moment: click on the time line or press
+    “+ Add change”, then set bow / stern / longitudinal velocity for that entry. Every change opens a new segment — position and
+    heading stay continuous, so the track is a chain of exact circular arcs and the pivot point jumps to its new station.
+    The moment of a change is entered as <i>minutes : seconds</i> (two separate boxes) and is shown in both units, so no manual
+    conversion is needed; the time line and the plan use the same m:ss notation.
+    Editing resolution is 1 s; changes spaced 5–30 s apart are the physically meaningful range (that is how fast a tug or a thruster
+    actually builds up its pull). Faster changes would need an inertia model, which this tool deliberately does not have.
+      </p>
+    </section>
+
+  </div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  const KN = 0.514444;           // knots -> m/s
+  const $ = id => document.getElementById(id);
+  const RAD = 180/Math.PI;
+
+  /* ---------- kinematic view geometry (schematic) ---------- */
+  const X_S = 70, X_B = 600, AXIS = 170;   // reference stations: stern, bow
+
+  /* ---------- manoeuvre schedule: velocity changes at given times ---------- */
+  const DEF = {L:180, beam:16, lcg:55, bow:1.5, stern:-0.8, surge:5, horiz:6, fit:'maneuver'};
+  let uid = 0;                                        // unique id of a schedule entry
+  const mkEntry = (t, bow, stern, surge) => ({id:++uid, t:t, bow:bow, stern:stern, surge:surge});
+  let sched = [mkEntry(0, DEF.bow, DEF.stern, DEF.surge)];   // kept sorted by t
+  let sel = 0;                                                           // selected change
+
+  /* ---------- interactive view of the plan (zoom + pan), v1.10 ---------- */
+  // viewBox of the plan SVG in world metres. null = "fit to content" (auto)
+  let view = null;           // {x, y, w, h}  (screen y is already flipped in box)
+  let baseBox = null;        // last auto-fitted box (used for reset and the % label)
+  let isPanning = false;
+  let panStart = null;       // {x, y, viewX, viewY} in client / world
+
+  /* ---------- model ---------- */
+  function readState(){
+    const e = sched[sel];
+    return {
+      L:   +$('L').value,
+      B:   +$('beam').value,
+      lam: +$('lcg').value/100,
+      vb:  e.bow,
+      vs:  e.stern,
+      u:   e.surge,
+      horizon: +$('horiz').value,     // prediction horizon, minutes
+      fit:  $('fit').value,
+      planMode: $('planMode').value,  // 'full' | 'clean'
+      ghostVec: $('ghostVec').checked, // velocities on the ghost ships
+      showCircles: $('showCircles').checked,
+      showPP: $('showPP').checked,
+      showGhostPP: $('showGhostPP').checked,
+      showVec: $('showVec').checked,
+      showEvents: $('showEvents').checked
+    };
+  }
+
+  // derived state for an arbitrary schedule entry
+  function deriveEvent(e){
+    return derive({
+      L:+$('L').value, B:+$('beam').value, lam:+$('lcg').value/100,
+      vb:e.bow, vs:e.stern, u:e.surge, horizon:+$('horiz').value, fit:$('fit').value
+    });
+  }
+
+  function derive(st){
+    const vb = st.vb*KN, vs = st.vs*KN, u = st.u*KN;
+    const omega = (vb - vs)/st.L;                       // rad/s
+    const vcg   = vs + st.lam*(vb - vs);                // sway at CG, m/s
+    const V     = Math.hypot(u, vcg);                   // speed of CG
+    const d     = vb - vs;
+    const pp    = Math.abs(d) > 1e-9 ? st.L*vb/d : null; // metres from bow
+    const turn  = Math.abs(omega) > 1e-12;
+    return {
+      L:st.L, B:st.B, lam:st.lam, vb, vs, u, omega, vcg, V,
+      ppFromBow: pp,
+      ppFromStern: pp === null ? null : st.L - pp,
+      hasTurn: turn,
+      R: turn ? V/Math.abs(omega) : null,               // radius of the CG path
+      centre: turn ? {x:-vcg/omega, y:u/omega} : null,  // turning-circle centre
+      horizon: st.horizon
+    };
+  }
+
+  /* ---------- time helpers: minutes : seconds, shown in both units ---------- */
+  function fmtMS(sec){
+    const s = Math.max(0, Math.round(sec));
+    return Math.floor(s/60) + ':' + String(s % 60).padStart(2,'0');
+  }
+
+  // exact body-frame kinematics, psi0 = 0, origin at the initial CG
+  function stateAt(t, D){
+    if(!D.hasTurn) return {X:D.u*t, Y:D.vcg*t, psi:0};
+    const psi = D.omega*t, c = Math.cos(psi), s = Math.sin(psi);
+    return {
+      X:(D.u/D.omega)*s + (D.vcg/D.omega)*(c-1),
+      Y:(D.u/D.omega)*(1-c) + (D.vcg/D.omega)*s,
+      psi
+    };
+  }
+
+  /* ---------- piecewise (schedule) kinematics: exact, continuous ---------- */
+  function advance(X, Y, psi0, p, dt){
+    if(Math.abs(p.omega) < 1e-12) return {X:X + p.u*dt, Y:Y + p.vcg*dt, psi:psi0};
+    const psi = psi0 + p.omega*dt, c = Math.cos(psi), s = Math.sin(psi),
+          c0 = Math.cos(psi0), s0 = Math.sin(psi0);
+    return {
+      X: X + (p.u/p.omega)*(s - s0) + (p.vcg/p.omega)*(c - c0),
+      Y: Y + (p.u/p.omega)*(c0 - c) + (p.vcg/p.omega)*(s - s0),
+      psi
+    };
+  }
+  function segments(){
+    const list = sched.slice().sort((a,b)=>a.t-b.t);
+    const segs = []; let X=0, Y=0, psi=0;
+    for(let k=0;k<list.length;k++){
+      const e = list[k];
+      const D = deriveEvent(e);
+      const p = {omega:D.omega, vcg:D.vcg, u:D.u};
+      if(k > 0){
+        // the interval before this change was governed by the PREVIOUS segment
+        const prev = segs[k-1];
+        const dt = e.t - prev.t0;
+        const s = advance(prev.X0, prev.Y0, prev.psi0, prev.p, dt);
+        X = s.X; Y = s.Y; psi = s.psi;
+      }
+      segs.push({t0:e.t, t1:(k+1<list.length ? list[k+1].t : Infinity),
+                 X0:X, Y0:Y, psi0:psi, D:D, p:p});
+    }
+    return segs;
+  }
+  // distance travelled along the track between two times
+  function travelled(t0, t1){
+    let d = 0;
+    for(const g of segments()){
+      const a = Math.max(t0, g.t0), b = Math.min(t1, g.t1);
+      if(b > a) d += Math.hypot(g.p.u, g.p.vcg)*(b - a);
+    }
+    return d;
+  }
+  function stateAtT(t){
+    const segs = segments();
+    let i = 0;
+    for(let k=0;k<segs.length;k++) if(segs[k].t0 <= t + 1e-9) i = k;
+    const g = segs[i];
+    return advance(g.X0, g.Y0, g.psi0, g.p, t - g.t0);
+  }
+  // the segment (and its velocity set) active at the given time
+  function segmentAt(t){
+    const segs = segments();
+    let i = 0;
+    for(let k=0;k<segs.length;k++) if(segs[k].t0 <= t + 1e-9) i = k;
+    return segs[i];
+  }
+
+  // turning-circle centre of a segment, in world coordinates
+  function segCentre(g){
+    if(!g.D.hasTurn) return null;
+    const c = Math.cos(g.psi0), s = Math.sin(g.psi0);
+    return {
+      x: g.X0 + (-g.p.vcg*c - g.p.u*s)/g.p.omega,
+      y: g.Y0 + (-g.p.vcg*s + g.p.u*c)/g.p.omega,
+      R: g.D.R
+    };
+  }
+
+  function hullPoints(L, B, lam){
+    const hb = B/2, xs = -lam*L, xb = (1-lam)*L;
+    return [
+      [xs,           -hb*0.55],
+      [xs+0.10*L,    -hb*0.97],
+      [xs+0.72*L,    -hb],
+      [xb,           0],
+      [xs+0.72*L,     hb],
+      [xs+0.10*L,     hb*0.97],
+      [xs,            hb*0.55]
+    ];
+  }
+  function toWorld(pts, st0, psi){
+    const c = Math.cos(psi), s = Math.sin(psi);
+    return pts.map(p => [st0.X + p[0]*c - p[1]*s, st0.Y + p[0]*s + p[1]*c]);
+  }
+  const P = (p) => p[0].toFixed(2)+','+(-p[1]).toFixed(2);   // world -> screen (y flips)
+
+  /* ---------- drawing helpers ---------- */
+  function niceStep(target){
+    if(!(target>0)) return 1;
+    const e = Math.pow(10, Math.floor(Math.log10(target)));
+    const f = target/e;
+    return (f<1.5?1:f<3.5?2:f<7.5?5:10)*e;
+  }
+  function fitBox(points, aspect, padFrac){
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const p of points){
+      if(!p) continue;
+      minX=Math.min(minX,p[0]); maxX=Math.max(maxX,p[0]);
+      minY=Math.min(minY,p[1]); maxY=Math.max(maxY,p[1]);
+    }
+    if(!isFinite(minX)){ minX=maxX=minY=maxY=0; }
+    let w = (maxX-minX)||1, h = (maxY-minY)||1;
+    if(w/h < aspect) w = h*aspect; else h = w/aspect;
+    const pad = Math.max(w,h)*padFrac;
+    w += 2*pad; h += 2*pad;
+    const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+    return {x:cx-w/2, y:-cy-h/2, w:w, h:h};      // screen y is flipped
+  }
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  /* ---------- kinematic scheme ---------- */
+  function drawKinematic(st, D){
+    const span = X_B - X_S;
+    const hull = `M${X_S} 132 L${X_S+span*0.85} 130 Q${X_S+span*0.96} 134 ${X_B} 170 Q${X_S+span*0.96} 206 ${X_S+span*0.85} 210 L${X_S} 208 Q${X_S-14} 170 ${X_S} 132Z`;
+    $('hull').setAttribute('d', hull);
+    $('deck').setAttribute('d', `M${X_S+span*0.10} 143 H${X_S+span*0.78} L${X_B-22} 170 L${X_S+span*0.78} 197 H${X_S+span*0.10} Z`);
+    $('house1').setAttribute('x', X_S+span*0.13); $('house1').setAttribute('y', 148);
+    $('house1').setAttribute('width', span*0.15); $('house1').setAttribute('height', 44);
+    $('house2').setAttribute('x', X_S+span*0.36); $('house2').setAttribute('y', 153);
+    $('house2').setAttribute('width', span*0.30); $('house2').setAttribute('height', 34);
+
+    // CG marker at station lam*L from the stern
+    const cgX = X_S + span*st.lam;
+    $('cgDot').setAttribute('cx', cgX); $('cgDot').setAttribute('cy', AXIS);
+    $('cgTxt').setAttribute('x', cgX); $('cgTxt').setAttribute('y', 232);
+
+    // transverse velocity vectors
+    const maxV = Math.max(Math.abs(st.vb), Math.abs(st.vs), 1e-9);
+    const vs3 = Math.min(35, 105/maxV);
+    function arrow(line, head, x, v, label){
+      const dy = v*vs3, y = AXIS - dy;
+      $(line).setAttribute('d', `M${x} ${AXIS}V${y}`);
+      $(head).setAttribute('d', v>=0 ? `M${x-8} ${y+12}L${x} ${y}L${x+8} ${y+12}`
+                                    : `M${x-8} ${y-12}L${x} ${y}L${x+8} ${y-12}`);
+      $(head).style.display = Math.abs(v)<.001 ? 'none' : '';
+      label.textContent = (v>0?'+':'')+v.toFixed(1)+' kn';
+      label.setAttribute('x', x);
+      label.setAttribute('y', v>=0 ? y-12 : y+24);
+      return y;
+    }
+    const ys = arrow('sternLine','sternHead', X_S, st.vs, $('sternVal'));
+    const yb = arrow('bowLine','bowHead',   X_B, st.vb, $('bowVal'));
+    $('connector').setAttribute('d', `M${X_S} ${ys}L${X_B} ${yb}`);
+
+    // pivot point
+    const pp = D.ppFromBow;
+    const visible = pp !== null && pp >= 0 && pp <= D.L;
+    $('ppGroup').style.display = visible ? '' : 'none';
+    if(visible){
+      const x = X_B - span*pp/D.L;
+      $('ppHalo').setAttribute('cx', x); $('ppHalo').setAttribute('cy', AXIS);
+      $('ppDot').setAttribute('cx', x);  $('ppDot').setAttribute('cy', AXIS);
+      $('ppTxt').setAttribute('x', x);   $('ppTxt').setAttribute('y', 113);
+      $('ppStem').setAttribute('d', `M${x} 118V150`);
+    }
+
+    // longitudinal velocity
+    const u = st.u;
+    $('uLine').setAttribute('d', u>=0 ? 'M290 285H410' : 'M410 285H290');
+    $('uHead').setAttribute('d', u>=0 ? 'M398 278L410 285L398 292' : 'M302 278L290 285L302 292');
+    $('uLabel').setAttribute('y', 318);
+    $('uLabel').textContent = `Longitudinal velocity: ${u.toFixed(1)} kn`;
+
+    $('outNote').textContent =
+      (pp===null) ? 'No yaw: PP undefined'
+    : (pp<0)        ? 'PP lies ahead of the bow'
+    : (pp>D.L)      ? 'PP lies abaft the stern'
+                    : '';
+  }
+
+  /* ---------- manoeuvre plan (true scale) ---------- */
+  function drawPlan(st, D){
+    const hull = hullPoints(D.L, D.B, D.lam);
+    const segs = segments();
+    const H = st.horizon*60;                              // prediction horizon, s
+    const track = [], ships = [];
+    // breakpoints: every scheduled change inside the horizon
+    const breaks = [0];
+    for(const e of sched) if(e.t>0 && e.t<H) breaks.push(e.t);
+    breaks.push(H);
+    for(let k=0;k<breaks.length-1;k++){
+      const t0 = breaks[k], t1 = breaks[k+1], n = 22;
+      for(let i=0;i<=n;i++){
+        if(k>0 && i===0) continue;                        // no duplicated joints
+        const s0 = stateAtT(t0 + (t1-t0)*i/n);
+        track.push([s0.X, s0.Y]);
+        ships.push(s0);
+      }
+    }
+    // ghost ships: the vessel after every minute (every 5 min for long horizons)
+    const ghosts = [];
+    const gStep = st.horizon<=12 ? 1 : 5;
+    for(let m=gStep;m<=st.horizon;m+=gStep){
+      const s0 = stateAtT(m*60);
+      const sg = segmentAt(m*60);                 // the velocity set active there
+      ghosts.push({s0, pts: toWorld(hull, s0, s0.psi), min:m,
+                   vb: sg.D.vb/KN, vs: sg.D.vs/KN, u: sg.D.u/KN});
+    }
+    const startPts = toWorld(hull, ships[0], ships[0].psi);
+    const endPts   = toWorld(hull, ships[ships.length-1], ships[ships.length-1].psi);
+
+    // ---- view box ----
+    let box;
+    if(st.fit === 'circle' && segs.length && segCentre(segs[0])){
+      const c = segCentre(segs[0]);
+      box = fitBox([[c.x-c.R,c.y-c.R],[c.x+c.R,c.y+c.R]], 16/9, 0.06);
+    } else if(st.fit === 'ship'){
+      box = fitBox(startPts, 16/9, 0.35);
+    } else {
+      const pts = [].concat(startPts, endPts, track, ghosts.flatMap(g=>g.pts));
+      box = fitBox(pts, 16/9, 0.08);
+    }
+    const fs = box.w/58;                       // font size in scene units
+    const sx = wx => wx, sy = wy => -wy;
+    const clean = st.planMode === 'clean';       // only the manoeuvre itself
+    const D0 = deriveEvent(sched[0]);             // the start condition (t = 0)
+    const v0 = {vb: D0.vb/KN, vs: D0.vs/KN, u: D0.u/KN};
+
+    // ---- grid ----
+    const step = niceStep(box.w/6);
+    let grid = '';
+    for(let x = Math.ceil(box.x/step)*step; x <= box.x+box.w; x += step)
+      grid += `<line x1="${x.toFixed(2)}" y1="${box.y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(box.y+box.h).toFixed(2)}" stroke="#7293a5" stroke-opacity=".13"/>`;
+    for(let y = Math.ceil(box.y/step)*step; y <= box.y+box.h; y += step)
+      grid += `<line x1="${box.x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(box.x+box.w).toFixed(2)}" y2="${y.toFixed(2)}" stroke="#7293a5" stroke-opacity=".13"/>`;
+
+    // ---- turning circle of every segment (hidden in the clean view) ----
+    let circle = '';
+    if(st.showCircles && !clean) segs.forEach((g,i)=>{
+      const c = segCentre(g);
+      if(!c) return;
+      circle += `<circle cx="${c.x.toFixed(2)}" cy="${sy(c.y).toFixed(2)}" r="${c.R.toFixed(2)}"
+        fill="none" stroke="#7ee8fa" stroke-opacity="${i===0?'.55':'.26'}" stroke-width="${(fs*0.08).toFixed(3)}"
+        stroke-dasharray="${(fs*0.7).toFixed(2)} ${(fs*0.5).toFixed(2)}"/>`;
+    });
+
+    // ---- track ----
+    const trackStr = track.map(p => `${p[0].toFixed(2)},${sy(p[1]).toFixed(2)}`).join(' ');
+    const trackSvg = `<polyline points="${trackStr}" fill="none" stroke="#ffd166" stroke-width="${(fs*0.13).toFixed(3)}" stroke-linecap="round"/>`;
+
+    // ---- ships: ghosts at every minute, labelled "+N min" ----
+    // the time label is put on the starboard side: the port side carries the
+    // transverse velocity arrows and their values
+    const ghostSvg = ghosts.map(g=>{
+      const psi = g.s0.psi, c = Math.cos(psi), s = Math.sin(psi);
+      const tx = -s, ty = c;                       // transverse unit vector (to port)
+      const px = g.s0.X - fs*2.1*tx, py = g.s0.Y - fs*2.1*ty;
+      return `<polygon points="${g.pts.map(P).join(' ')}" fill="#9fb3c8" fill-opacity=".18" stroke="#9fb3c8" stroke-opacity=".8" stroke-width="${(fs*0.07).toFixed(3)}"/>
+       <text x="${px.toFixed(2)}" y="${(sy(py)-fs*0.3).toFixed(2)}" fill="#cbd8e4" font-size="${(fs*0.72).toFixed(2)}" text-anchor="middle" stroke="#122c41" stroke-width="${(fs*0.14).toFixed(3)}" paint-order="stroke">+${g.min} min</text>`;
+    }).join('');
+    const endSvg = `<polygon points="${endPts.map(P).join(' ')}" fill="#c8d4dd" fill-opacity=".85" stroke="#edf4f8" stroke-width="${(fs*0.08).toFixed(3)}"/>`;
+    const startSvg = `<polygon points="${startPts.map(P).join(' ')}" fill="#c8d4dd" fill-opacity=".35" stroke="#edf4f8" stroke-opacity=".9" stroke-width="${(fs*0.09).toFixed(3)}"/>`;
+
+    // ---- markers ----
+    const st0 = ships[0], stN = ships[ships.length-1];
+    const cgS = `<circle cx="${st0.X.toFixed(2)}" cy="${sy(st0.Y).toFixed(2)}" r="${(fs*0.22).toFixed(3)}" fill="#facc15" stroke="#1e293b" stroke-width="${(fs*0.05).toFixed(3)}"/>
+      <text x="${st0.X.toFixed(2)}" y="${(sy(st0.Y)-fs*0.4).toFixed(2)}" fill="#facc15" font-size="${fs.toFixed(2)}" text-anchor="middle">CG</text>`;
+    const cgE = `<circle cx="${stN.X.toFixed(2)}" cy="${sy(stN.Y).toFixed(2)}" r="${(fs*0.22).toFixed(3)}" fill="#facc15" stroke="#1e293b" stroke-width="${(fs*0.05).toFixed(3)}"/>`;
+
+    // pivot point of every segment (station of zero transverse velocity)
+    let ppSvg = '';
+    if(st.showPP && !clean) for(const g of segments()){
+      if(g.D.ppFromBow === null) continue;
+      const bodyX = (g.D.L - g.D.ppFromBow) - g.D.lam*g.D.L;   // relative to CG
+      const c0 = Math.cos(g.psi0), s0 = Math.sin(g.psi0);
+      const px = g.X0 + bodyX*c0, py = g.Y0 + bodyX*s0;
+      const inside = g.D.ppFromBow>=0 && g.D.ppFromBow<=g.D.L;
+      const r = (g.t0 === 0 ? fs*0.45 : fs*0.3);
+      ppSvg += `<g>
+        <circle cx="${px.toFixed(2)}" cy="${sy(py).toFixed(2)}" r="${r.toFixed(3)}" fill="#ff8b40" fill-opacity="${inside?'.25':'.45'}" stroke="#ff9a54" stroke-width="${(fs*0.05).toFixed(3)}" stroke-dasharray="${(fs*0.3).toFixed(2)} ${(fs*0.22).toFixed(2)}"/>
+        <circle cx="${px.toFixed(2)}" cy="${sy(py).toFixed(2)}" r="${(fs*0.16).toFixed(3)}" fill="#ff914d" stroke="#fff" stroke-width="${(fs*0.04).toFixed(3)}"/>
+        ${g.t0===0 ? `<text x="${px.toFixed(2)}" y="${(sy(py)-fs*0.75).toFixed(2)}" fill="#ffb77d" font-size="${fs.toFixed(2)}" font-weight="bold" text-anchor="middle">PP</text>` : ''}
+      </g>`;
+    }
+
+    // PP on ghost ships
+    let ghostPPSvg = '';
+    if(st.showGhostPP){
+      for(const g of ghosts){
+        const sg = segmentAt(g.min*60);
+        if(!sg || sg.D.ppFromBow === null) continue;
+        const bodyX = (sg.D.L - sg.D.ppFromBow) - sg.D.lam*sg.D.L;
+        const psi = g.s0.psi, c = Math.cos(psi), s = Math.sin(psi);
+        const px = g.s0.X + bodyX*c, py = g.s0.Y + bodyX*s;
+        const inside = sg.D.ppFromBow>=0 && sg.D.ppFromBow<=sg.D.L;
+        ghostPPSvg += `<g>
+          <circle cx="${px.toFixed(2)}" cy="${sy(py).toFixed(2)}" r="${(fs*0.28).toFixed(3)}" fill="#ff8b40" fill-opacity="${inside?'.35':'.55'}" stroke="#ff9a54" stroke-width="${(fs*0.04).toFixed(3)}" stroke-dasharray="${(fs*0.25).toFixed(2)} ${(fs*0.18).toFixed(2)}"/>
+          <circle cx="${px.toFixed(2)}" cy="${sy(py).toFixed(2)}" r="${(fs*0.11).toFixed(3)}" fill="#ff914d" stroke="#fff" stroke-width="${(fs*0.03).toFixed(3)}"/>
+          <text x="${px.toFixed(2)}" y="${(sy(py)-fs*0.45).toFixed(2)}" fill="#ffb77d" font-size="${(fs*0.6).toFixed(2)}" font-weight="bold" text-anchor="middle" stroke="#122c41" stroke-width="${(fs*0.1).toFixed(3)}" paint-order="stroke">PP</text>
+        </g>`;
+      }
+    }
+
+    // ---- scheduled changes on the plan (hidden in the clean view) ----
+    let evSvg = '';
+    if(st.showEvents && !clean) for(const e of sched){
+      if(e.t<=0 || e.t>H) continue;
+      const s = stateAtT(e.t);
+      evSvg += `<g>
+        <circle cx="${s.X.toFixed(2)}" cy="${sy(s.Y).toFixed(2)}" r="${(fs*0.32).toFixed(3)}" fill="none" stroke="#ff9a54" stroke-width="${(fs*0.08).toFixed(3)}"/>
+        <circle cx="${s.X.toFixed(2)}" cy="${sy(s.Y).toFixed(2)}" r="${(fs*0.11).toFixed(3)}" fill="#ff9a54"/>
+        <text x="${s.X.toFixed(2)}" y="${(sy(s.Y)-fs*0.95).toFixed(2)}" fill="#ffb77d" font-size="${(fs*0.75).toFixed(2)}" text-anchor="middle" stroke="#122c41" stroke-width="${(fs*0.14).toFixed(3)}" paint-order="stroke">${fmtMS(e.t)}</text>
+      </g>`;
+    }
+
+    // ---- velocity vectors: one common scale for the whole plan ----
+    const gvmax = ghosts.reduce((m,g)=>Math.max(m, Math.abs(g.vb), Math.abs(g.vs), Math.abs(g.u)),
+                                Math.max(Math.abs(v0.vb), Math.abs(v0.vs), Math.abs(v0.u), 1e-9));
+    const vscale = (0.45*D.L)/gvmax;                    // metres per knot (arrow <= 0.45 L)
+    const xsSt = -D.lam*D.L, xsBw = (1-D.lam)*D.L;
+    const mk = (id,color) => `<marker id="mk${id}" viewBox="0 0 10 10" refX="9" refY="5"
+        markerWidth="${(fs*0.62).toFixed(3)}" markerHeight="${(fs*0.62).toFixed(3)}"
+        markerUnits="userSpaceOnUse" orient="auto">
+        <path d="M0 0 L10 5 L0 10 Z" fill="${color}"/></marker>`;
+    const defs = `<defs>${mk('b','#5de5a5')}${mk('s','#72baff')}${mk('l','#e7f0fa')}</defs>`;
+    function vArrow(x, y, vx, vy, id, color, label, fsz, labPos){
+      const mag = Math.hypot(vx,vy);
+      if(mag < 1e-9) return '';
+      const len = mag*vscale;
+      const ex = x + vx/mag*len, ey = y + vy/mag*len;
+      const f = fsz || fs*0.8;
+      // the label is placed a little beyond the tip, along the arrow
+      const lx = labPos ? labPos.x : ex + vx/mag*f*0.45;
+      const ly = labPos ? labPos.y : ey + vy/mag*f*0.45;
+      return `<g>
+        <line x1="${x.toFixed(2)}" y1="${sy(y).toFixed(2)}" x2="${ex.toFixed(2)}" y2="${sy(ey).toFixed(2)}"
+              stroke="${color}" stroke-width="${(fs*0.09).toFixed(3)}" marker-end="url(#mk${id})"/>
+        <text x="${lx.toFixed(2)}" y="${(sy(ly)-f*0.3).toFixed(2)}" fill="${color}" font-size="${f.toFixed(2)}" text-anchor="middle"
+              stroke="#122c41" stroke-width="${(f*0.16).toFixed(3)}" paint-order="stroke">${esc(label)}</text>
+      </g>`;
+    }
+    // at the start position: transverse velocity of the bow and of the stern,
+    // longitudinal velocity at G — always the start condition
+    const vecSvg = st.showVec ?
+      vArrow(xsSt, 0, 0, v0.vs, 's', '#72baff', 'stern '+(v0.vs>0?'+':'')+v0.vs.toFixed(1)+' kn') +
+      vArrow(xsBw, 0, 0, v0.vb, 'b', '#5de5a5', 'bow '+(v0.vb>0?'+':'')+v0.vb.toFixed(1)+' kn') +
+      vArrow(0, 0, v0.u, 0, 'l', '#e7f0fa', 'long. (G) '+(v0.u>0?'+':'')+v0.u.toFixed(1)+' kn')
+      : '';
+
+    // ---- the same three velocities on every ghost ship (optional) ----
+    let ghostVecSvg = '';
+    if(st.ghostVec && st.showVec){
+      for(const g of ghosts){
+        const psi = g.s0.psi, c = Math.cos(psi), s = Math.sin(psi);
+        const tx = -s, ty = c;                       // transverse unit vector (to port)
+        const lx = c,  ly = s;                       // longitudinal unit vector
+        const pSt  = {x: g.s0.X + xsSt*c,  y: g.s0.Y + xsSt*s};
+        const pBow = {x: g.s0.X + xsBw*c,  y: g.s0.Y + xsBw*s};
+        const pCG  = {x: g.s0.X,           y: g.s0.Y};
+        ghostVecSvg +=
+          vArrow(pSt.x,  pSt.y,  tx*g.vs, ty*g.vs, 's', '#72baff', 's '+(g.vs>0?'+':'')+g.vs.toFixed(1), fs*0.8) +
+          vArrow(pBow.x, pBow.y, tx*g.vb, ty*g.vb, 'b', '#5de5a5', 'b '+(g.vb>0?'+':'')+g.vb.toFixed(1), fs*0.8) +
+          vArrow(pCG.x,  pCG.y,  lx*g.u,  ly*g.u,  'l', '#e7f0fa', 'u '+(g.u>0?'+':'')+g.u.toFixed(1), fs*0.8,
+                 {x: pCG.x + lx*g.u*vscale*0.5 + tx*fs*1.35, y: pCG.y + ly*g.u*vscale*0.5 + ty*fs*1.35});
+      }
+    }
+
+    // ---- scale bar ----
+    const barLen = niceStep(box.w*0.22);
+    const bx = box.x + box.w*0.05, by = box.y + box.h*0.93;
+    const bar = `<g>
+      <line x1="${bx.toFixed(2)}" y1="${by.toFixed(2)}" x2="${(bx+barLen).toFixed(2)}" y2="${by.toFixed(2)}" stroke="#e7f0fa" stroke-width="${(fs*0.09).toFixed(3)}"/>
+      <line x1="${bx.toFixed(2)}" y1="${(by-fs*0.3).toFixed(2)}" x2="${bx.toFixed(2)}" y2="${(by+fs*0.3).toFixed(2)}" stroke="#e7f0fa" stroke-width="${(fs*0.09).toFixed(3)}"/>
+      <line x1="${(bx+barLen).toFixed(2)}" y1="${(by-fs*0.3).toFixed(2)}" x2="${(bx+barLen).toFixed(2)}" y2="${(by+fs*0.3).toFixed(2)}" stroke="#e7f0fa" stroke-width="${(fs*0.09).toFixed(3)}"/>
+      <text x="${(bx+barLen/2).toFixed(2)}" y="${(by-fs*0.45).toFixed(2)}" fill="#e7f0fa" font-size="${(fs*0.9).toFixed(2)}" text-anchor="middle">${barLen} m</text>
+    </g>`;
+
+    // ---- radius label and turn centres (hidden in the clean view) ----
+    let rLabel = '', cLabel = '';
+    if(!clean) segs.forEach((g,i)=>{
+      const c = segCentre(g);
+      if(!c) return;
+      cLabel += `<g opacity="${i===0?'.8':'.45'}">
+        <circle cx="${c.x.toFixed(2)}" cy="${sy(c.y).toFixed(2)}" r="${(fs*0.2).toFixed(3)}" fill="none" stroke="#7ee8fa" stroke-width="${(fs*0.06).toFixed(3)}"/>
+        <line x1="${(c.x-fs*0.32).toFixed(2)}" y1="${sy(c.y).toFixed(2)}" x2="${(c.x+fs*0.32).toFixed(2)}" y2="${sy(c.y).toFixed(2)}" stroke="#7ee8fa" stroke-width="${(fs*0.06).toFixed(3)}"/>
+        <line x1="${c.x.toFixed(2)}" y1="${(sy(c.y)-fs*0.32).toFixed(2)}" x2="${c.x.toFixed(2)}" y2="${(sy(c.y)+fs*0.32).toFixed(2)}" stroke="#7ee8fa" stroke-width="${(fs*0.06).toFixed(3)}"/>
+        ${i===0 ? `<text x="${c.x.toFixed(2)}" y="${(sy(c.y)+fs*0.8).toFixed(2)}" fill="#7ee8fa" font-size="${(fs*0.75).toFixed(2)}" text-anchor="middle">turn centre</text>` : ''}
+      </g>`;
+      if(i===0) rLabel = `<text x="${c.x.toFixed(2)}" y="${(sy(c.y)-c.R-fs*0.7).toFixed(2)}" fill="#7ee8fa" font-size="${fs.toFixed(2)}" text-anchor="middle" stroke="#122c41" stroke-width="${(fs*0.16).toFixed(3)}" paint-order="stroke">R = ${c.R>=1000?(c.R/1000).toFixed(2)+' km':c.R.toFixed(0)+' m'}</text>`;
+    });
+
+    // ---- label at the end of the track ----
+    const endLabel = `<text x="${stN.X.toFixed(2)}" y="${(sy(stN.Y)+fs*1.2).toFixed(2)}" fill="#ffd166" font-size="${(fs*0.8).toFixed(2)}" text-anchor="middle" stroke="#122c41" stroke-width="${(fs*0.16).toFixed(3)}" paint-order="stroke">${st.horizon} min · ψ ${(stN.psi*RAD).toFixed(0)}°</text>`;
+
+    // store the auto-fit box (used for reset and the zoom %)
+    const prevBase = baseBox;
+    baseBox = {x: box.x, y: box.y, w: box.w, h: box.h};
+
+    // first run, or the content changed a lot -> fit the plan again
+    const contentChanged = !prevBase ||
+      Math.abs(prevBase.w - baseBox.w)/baseBox.w > 0.25 ||
+      Math.abs(prevBase.h - baseBox.h)/baseBox.h > 0.25;
+
+    if(!view || contentChanged){
+      view = {x: box.x, y: box.y, w: box.w, h: box.h};
+    }
+    applyViewBox();
+
+    $('planSvg').innerHTML = defs + grid + circle + trackSvg + ghostSvg + ghostVecSvg + ghostPPSvg + startSvg + endSvg + cgS + cgE + ppSvg + evSvg + vecSvg + cLabel + rLabel + endLabel + bar;
+    updateZoomLabel();
+
+    // ---- legend (depends on the plan detail and the layers) ----
+    const lg = [
+      ['#ffd166','', 'CG track (predicted)'],
+      ['#9fb3c8','', 'ship at successive headings']
+    ];
+    if(st.showVec){
+      lg.push(['#5de5a5','', 'bow transverse v']);
+      lg.push(['#72baff','', 'stern transverse v']);
+      lg.push(['#e7f0fa','', 'longitudinal v at G']);
+    }
+    if(st.showCircles && !clean){
+      lg.splice(1, 0, ['#7ee8fa','border-top-style:dashed', 'turning circle of CG']);
+    }
+    if((st.showPP && !clean) || st.showGhostPP){
+      lg.push(['#ff914d','', 'pivot point PP']);
+    }
+    $('legend').innerHTML = lg.map(([col,style,txt]) =>
+      `<span><i style="border-color:${col};${style}"></i>${txt}</span>`).join('');
+  }
+
+  /* ---------- metrics ---------- */
+  function drawMetrics(st, D){
+    const fmtLen = v => v===null ? '—' : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+' km' : v.toFixed(1)+' m');
+    const pp = D.ppFromBow;
+    $('mPpBow').textContent = pp===null ? '—' : fmtLen(Math.abs(pp)) + (pp<0?' ahead':'');
+    $('mPpStern').textContent = D.ppFromStern===null ? '—' : fmtLen(Math.abs(D.ppFromStern)) + (D.ppFromStern<0?' abaft':'');
+    $('mPpLoc').textContent = pp===null ? 'Undefined' : pp<0 ? 'Ahead of bow' : pp>D.L ? 'Abaft stern' : 'Within hull';
+    $('mRot').textContent = Math.abs(D.omega)<1e-12 ? '—'
+      : (D.omega*RAD*60).toFixed(2)+' °/min ' + (D.omega>0?'← port':'→ stbd');
+    $('mSway').textContent = (D.vcg/KN).toFixed(2)+' kn';
+    $('mR').textContent = D.R===null ? '—' : fmtLen(D.R);
+    $('mD').textContent = D.R===null ? '—' : fmtLen(2*D.R);
+    const tEnd = st.horizon*60;
+    const sN = stateAtT(tEnd);
+    $('mAdv').textContent = sN.X.toFixed(0)+' m · ψ '+(sN.psi*RAD).toFixed(0)+'°';
+  }
+
+  /* ---------- time roller: one cell per minute ---------- */
+  function drawRoller(st, D){
+    const el = $('roller');
+    if(!el) return;                     // the roller table is optional
+    let html = '';
+    for(let m=1;m<=6;m++){
+      const s = stateAtT(m*60);
+      const dPsi = s.psi*RAD;
+      const dist = travelled((m-1)*60, m*60);
+      const cls = m<=st.horizon ? (m===st.horizon ? 'rcell mark' : 'rcell') : 'rcell off';
+      html += `<div class="${cls}"><b>+${m} min</b>` +
+              `ψ ${dPsi>=0?'+':''}${dPsi.toFixed(1)}°<br>` +
+              `d ${dist.toFixed(0)} m<br>` +
+              `X ${s.X.toFixed(0)} / Y ${s.Y.toFixed(0)} m</div>`;
+    }
+    $('roller').innerHTML = html;
+  }
+
+  /* ---------- schedule UI ---------- */
+  function syncSliders(){
+    const e = sched[sel];
+    $('bow').value = e.bow; $('stern').value = e.stern; $('surge').value = e.surge;
+  }
+  function renderTable(){
+    const body = $('schedBody');
+    body.innerHTML = sched.map((e,i)=>{
+      const D = deriveEvent(e);
+      const yaw = Math.abs(D.omega)<1e-12 ? '—' : (D.omega*RAD*60).toFixed(1)+' °/min';
+      return `<tr class="${i===sel?'sel':''}" data-i="${i}" data-id="${e.id}">
+        <td>${i===0 ? '<b>0:00 &mdash; start</b>' : `<div class="tcell"><div class="trow">
+            <input type="number" class="m-in" value="${Math.floor(e.t/60)}" min="0" max="60" step="1" title="minutes">
+            <span class="colon">:</span><input type="number" class="sec-in" value="${e.t%60}" min="0" max="59" step="1" title="seconds">
+          </div><span class="eq">= ${e.t} s</span></div>`}</td>
+        <td><input type="number" class="b-in" value="${e.bow}" step="0.1" min="-5" max="5"></td>
+        <td><input type="number" class="s-in" value="${e.stern}" step="0.1" min="-5" max="5"></td>
+        <td><input type="number" class="u-in" value="${e.surge}" step="0.5" min="-10" max="15"></td>
+        <td class="yaw">${yaw}</td>
+        <td>${i===0 ? '' : `<button class="del" title="delete">&#10005;</button>`}</td>
+      </tr>`;
+    }).join('');
+
+    body.querySelectorAll('tr').forEach(tr=>tr.addEventListener('click', ev=>{
+      if(ev.target.tagName==='INPUT' || ev.target.tagName==='BUTTON') return;
+      const e = entryOfRow(tr);
+      if(!e) return;
+      sel = sched.indexOf(e); syncSliders(); renderTable(); draw();
+    }));
+    body.querySelectorAll('.m-in,.sec-in').forEach(inp=>{
+      // the entry is resolved from the DOM at event time, so the handler stays
+      // valid after the rows have been reordered
+      const commit = (normalise)=>{
+        const tr = inp.closest('tr');
+        const e = tr ? entryOfRow(tr) : null;
+        if(!e) return;
+        const mi = tr.querySelector('.m-in'), si = tr.querySelector('.sec-in');
+        const m = Math.max(0, Math.floor(+mi.value||0));
+        const s = Math.max(0, Math.round(+si.value||0));
+        const H = Math.max(1, +$('horiz').value*60);
+        const total = Math.min(Math.max(1, m*60 + s), H);   // 1 min 30 s -> 90 s
+        e.t = total;
+        if(normalise){ mi.value = Math.floor(total/60); si.value = total % 60; }
+        const eq = tr.querySelector('.eq');
+        if(eq) eq.textContent = '= ' + total + ' s';
+        sortSchedule(e);
+        sel = sched.indexOf(e);
+        syncSliders();
+        draw();
+      };
+      inp.addEventListener('input', ()=>commit(false));
+      inp.addEventListener('change', ()=>commit(true));
+    });
+    [['b-in','bow'],['s-in','stern'],['u-in','surge']].forEach(([cls,key])=>{
+      body.querySelectorAll('.'+cls).forEach(inp=>inp.addEventListener('input', ()=>{
+        const tr = inp.closest('tr');
+        const e = tr ? entryOfRow(tr) : null;
+        if(!e) return;
+        e[key] = +inp.value;
+        sel = sched.indexOf(e);
+        const D = deriveEvent(e);
+        const cell = tr.querySelector('.yaw');
+        if(cell) cell.textContent = Math.abs(D.omega)<1e-12 ? '—' : (D.omega*RAD*60).toFixed(1)+' °/min';
+        draw();
+      }));
+    });
+    body.querySelectorAll('.del').forEach(b=>b.addEventListener('click', ev=>{
+      ev.stopPropagation();
+      const tr = b.closest('tr');
+      const e = tr ? entryOfRow(tr) : null;
+      if(!e) return;
+      sched.splice(sched.indexOf(e), 1);
+      sel = Math.max(0, Math.min(sel, sched.length-1));
+      syncSliders(); renderTable(); draw();
+    }));
+  }
+  // entry of a table row, found by the unique id of the entry (not by position)
+  function entryOfRow(tr){
+    const id = +tr.dataset.id;
+    return sched.find(e=>e.id === id) || null;
+  }
+  // keep the schedule chronological and the rows in the same order as the entries
+  function sortSchedule(selEntry){
+    sched.sort((a,b)=>a.t-b.t);
+    const body = $('schedBody');
+    sched.forEach((e,k)=>{
+      const tr = body.querySelector('tr[data-id="'+e.id+'"]');
+      if(!tr) return;
+      tr.dataset.i = k;
+      body.appendChild(tr);                    // moves the row, keeps its inputs
+    });
+    body.querySelectorAll('tr').forEach(tr=>{
+      const e = entryOfRow(tr);
+      tr.classList.toggle('sel', !!e && !!selEntry && e.id === selEntry.id);
+    });
+  }
+  function renderTimeline(st){
+    const H = Math.max(60, st.horizon*60);
+    let ticks = '', marks = '';
+    const stepMin = st.horizon<=12 ? 1 : (st.horizon<=30 ? 2 : 5);
+    const hSafe = Math.max(1, st.horizon);
+    for(let m=0;m<=st.horizon;m++){
+      const f = m/hSafe;
+      const pos = `calc(10px + (100% - 20px)*${f})`;
+      ticks += `<div class="tl-tick" style="left:${pos}"></div>`;
+      if(m % stepMin === 0) ticks += `<div class="tl-lab" style="left:${pos}">${m}</div>`;
+    }
+    for(let i=0;i<sched.length;i++){
+      const e = sched[i], f = Math.min(1, e.t/H);
+      marks += `<div class="tl-mark ${i===sel?'sel':''}" data-i="${i}" style="left:calc(10px + (100% - 20px)*${f})">
+                  <div class="dot"></div><div class="lb" title="${e.t} s">${fmtMS(e.t)}</div></div>`;
+    }
+    $('tlTicks').innerHTML = ticks;
+    $('tlMarks').innerHTML = marks;
+  }
+  function addEvent(t){
+    const H = Math.max(1, +$('horiz').value*60);
+    t = Math.min(Math.max(1, Math.round(t)), H);
+    const found = sched.findIndex(e=>e.t===t);
+    if(found >= 0){ sel = found; syncSliders(); renderTable(); draw(); return; }
+    const cur = sched[sel];
+    sched.push(mkEntry(t, cur.bow, cur.stern, cur.surge));
+    sched.sort((a,b)=>a.t-b.t);
+    sel = sched.findIndex(e=>e.t===t);
+    syncSliders(); renderTable(); draw();
+  }
+
+  /* ---------- zoom + pan of the plan (v1.10) ---------- */
+  function applyViewBox(){
+    if(!view) return;
+    $('planSvg').setAttribute('viewBox', `${view.x.toFixed(3)} ${view.y.toFixed(3)} ${view.w.toFixed(3)} ${view.h.toFixed(3)}`);
+  }
+  function updateZoomLabel(){
+    if(!view || !baseBox) return;
+    const pct = Math.round((baseBox.w / view.w) * 100);
+    const el = $('zoomLabel');
+    if(el) el.textContent = pct + '%';
+  }
+  // the pointer in plan metres, through the real SVG matrix: this stays exact
+  // even when the viewBox and the element have a different aspect ratio
+  function planPointAt(clientX, clientY, m){
+    const svg=$('planSvg');
+    const mat = m || svg.getScreenCTM(); if(!mat) return [view?view.x:0, view?view.y:0];
+    const p = svg.createSVGPoint(); p.x=clientX; p.y=clientY;
+    const q = p.matrixTransform(mat.inverse());
+    return [q.x, q.y];
+  }
+  function zoomAt(clientX, clientY, factor){
+    if(!view || !baseBox) return;
+    const w = planPointAt(clientX, clientY);
+    const newW = Math.max(baseBox.w*0.05, Math.min(baseBox.w*20, view.w/factor));
+    const newH = newW * (view.h/view.w);           // keep the aspect
+    const fx = (w[0]-view.x)/view.w, fy = (w[1]-view.y)/view.h;
+    view.x = w[0] - fx*newW;
+    view.y = w[1] - fy*newH;
+    view.w = newW;
+    view.h = newH;
+    applyViewBox();
+    updateZoomLabel();
+  }
+  function resetView(){
+    if(!baseBox) return;
+    view = {x: baseBox.x, y: baseBox.y, w: baseBox.w, h: baseBox.h};
+    applyViewBox();
+    updateZoomLabel();
+  }
+
+  (function initPanZoom(){
+    const svg = $('planSvg'); if(!svg) return;
+
+    svg.addEventListener('wheel', e=>{
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.18 : 1/1.18);
+    }, {passive:false});
+
+    svg.addEventListener('pointerdown', e=>{
+      if(e.button!==0 || !view) return;
+      isPanning = true;
+      const m = svg.getScreenCTM();
+      const w = planPointAt(e.clientX, e.clientY, m);
+      panStart = {m, wx:w[0], wy:w[1], vx:view.x, vy:view.y};
+      svg.classList.add('panning');
+      svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener('pointermove', e=>{
+      if(!isPanning || !panStart || !view) return;
+      const w = planPointAt(e.clientX, e.clientY, panStart.m);
+      view.x = panStart.vx - (w[0]-panStart.wx);
+      view.y = panStart.vy - (w[1]-panStart.wy);
+      applyViewBox();
+    });
+    const endPan = ()=>{ isPanning=false; panStart=null; svg.classList.remove('panning'); };
+    svg.addEventListener('pointerup', endPan);
+    svg.addEventListener('pointercancel', endPan);
+    svg.addEventListener('pointerup', e=>{ if(panStart && panStart.m) try{svg.releasePointerCapture(e.pointerId);}catch(err){} });
+
+    // the three buttons
+    const centreZoom = factor=>{
+      const r = svg.getBoundingClientRect();
+      zoomAt(r.left + r.width/2, r.top + r.height/2, factor);
+    };
+    const bIn=$('zoomIn'), bOut=$('zoomOut'), bReset=$('zoomReset');
+    if(bIn)  bIn.addEventListener('click', ()=>centreZoom(1.25));
+    if(bOut) bOut.addEventListener('click', ()=>centreZoom(1/1.25));
+    if(bReset) bReset.addEventListener('click', resetView);
+  })();
+
+  /* ---------- main ---------- */
+  function draw(){
+    syncSliders();
+    queueSessionSave();   // v1.15: keep the current state for the next start
+    const st = readState(), D = derive(st);
+    $('Lval').textContent    = st.L+' m';
+    $('beamval').textContent = st.B+' m';
+    $('lcgval').textContent  = (st.lam*100).toFixed(0)+' % ('+(st.lam*st.L).toFixed(0)+' m)';
+    $('bowval').textContent  = st.vb.toFixed(1)+' kn';
+    $('sternval').textContent= st.vs.toFixed(1)+' kn';
+    $('surgeval').textContent= st.u.toFixed(1)+' kn';
+    $('horizval').textContent= st.horizon+' min';
+    $('schedHint').textContent = 'Editing: ' + (sel===0 ? 'start condition' : 'change at t = '+fmtMS(sched[sel].t)+' ('+sched[sel].t+' s)')
+                                 + ' — the sliders above act on this entry.';
+    drawKinematic(st, D);
+    drawPlan(st, D);
+    drawMetrics(st, D);
+    drawRoller(st, D);
+    renderTimeline(st);
+  }
+
+  for(const id of ['L','beam','lcg','horiz','fit','planMode'])
+    $(id).addEventListener('input', draw);
+  for(const id of ['planMode','ghostVec','showCircles','showPP','showGhostPP','showVec','showEvents']){
+    $(id).addEventListener('input', draw);
+    $(id).addEventListener('change', draw);
+  }
+  [['bow','bow'],['stern','stern'],['surge','surge']].forEach(([id,key])=>{
+    $(id).addEventListener('input', ()=>{ sched[sel][key] = +$(id).value; draw(); renderTable(); });
+  });
+
+  $('reset').addEventListener('click', ()=>{
+    Object.entries({L:DEF.L, beam:DEF.beam, lcg:DEF.lcg, horiz:DEF.horiz, fit:DEF.fit})
+      .forEach(([k,v])=>$(k).value=v);
+    sched = [mkEntry(0, DEF.bow, DEF.stern, DEF.surge)]; sel = 0;
+    syncSliders(); renderTable(); draw();
+  });
+  $('resetSched').addEventListener('click', ()=>{
+    sched = [mkEntry(0, sched[0].bow, sched[0].stern, sched[0].surge)]; sel = 0;
+    syncSliders(); renderTable(); draw();
+  });
+  $('addEvent').addEventListener('click', ()=>{
+    const H = Math.max(1, +$('horiz').value*60);
+    const next = sched.filter(e=>e.t>0).map(e=>e.t);
+    const t = next.length ? Math.min(H, Math.max(...next)+10) : Math.min(H, 10);
+    addEvent(t);
+  });
+  $('delEvent').addEventListener('click', ()=>{
+    if(sel===0) return;
+    sched.splice(sel,1); sel = Math.max(0, sel-1);
+    syncSliders(); renderTable(); draw();
+  });
+  $('timeline').addEventListener('click', ev=>{
+    if(ev.target.closest('.tl-mark')) return;
+    const r = $('timeline').getBoundingClientRect();
+    const f = (ev.clientX - r.left - 10)/Math.max(1, r.width - 20);
+    addEvent(f * Math.max(1, +$('horiz').value*60));
+  });
+  $('tlMarks').addEventListener('click', ev=>{
+    const m = ev.target.closest('.tl-mark');
+    if(!m) return;
+    ev.stopPropagation();
+    sel = +m.dataset.i; syncSliders(); renderTable(); draw();
+  });
+
+  syncSliders(); renderTable(); draw();
+
+  /* ---------- v1.15: save / load — library on this computer, file, last session ---------- */
+  const SAVE_KEY      = 'sps_manoeuvre_v1';
+  const SESSION_KEY   = 'sps_session_v1';
+  const PREFS_KEY     = 'sps_prefs_v1';
+  const STATE_VERSION = 2;
+  const LAYER_IDS = ['showCircles','showPP','showGhostPP','showVec','showEvents','ghostVec'];
+
+  function collectState(kind){
+    const layers = {};
+    LAYER_IDS.forEach(id=>{ if($(id)) layers[id] = !!$(id).checked; });
+    return {
+      version: STATE_VERSION,
+      kind: kind || 'manoeuvre',
+      app: 'Ship Pivot Point Simulator 1.16',
+      savedAt: new Date().toISOString(),
+      vessel: { L:+$('L').value, beam:+$('beam').value, lcg:+$('lcg').value },
+      horizon: +$('horiz').value,
+      view: { fit: $('fit') ? $('fit').value : 'maneuver',
+              planMode: $('planMode') ? $('planMode').value : 'full',
+              layers: layers },
+      schedule: sched.map(e=>({ t:e.t, bow:e.bow, stern:e.stern, surge:e.surge })),
+      chart: window.CH ? { lat: window.CH.lat0, lon: window.CH.lon0, hdg: window.CH.heading0,
+                           layer: window.CH.layer, overlay: window.CH.overlay } : null
+    };
+  }
+
+  function applyState(data, keepPosition){
+    if(!data || !Array.isArray(data.schedule) || !data.schedule.length) throw new Error('invalid state');
+    const v = data.vessel || {};
+    if(v.L)    $('L').value = v.L;
+    if(v.beam) $('beam').value = v.beam;
+    if(v.lcg)  $('lcg').value = v.lcg;
+    if(typeof data.horizon === 'number') $('horiz').value = data.horizon;
+
+    const view = data.view || {};
+    const setSel = (id, val)=>{
+      const s = $(id); if(!s || !val) return;
+      s.value = val;
+      s.dispatchEvent(new Event('input',  {bubbles:true}));
+      s.dispatchEvent(new Event('change', {bubbles:true}));
+    };
+    setSel('fit', view.fit);
+    setSel('planMode', view.planMode);
+    if(view.layers) LAYER_IDS.forEach(id=>{
+      const cb = $(id);
+      if(!cb || !(id in view.layers)) return;
+      cb.checked = !!view.layers[id];
+      cb.dispatchEvent(new Event('input', {bubbles:true}));
+      const sw = document.querySelector('[data-switch="'+id+'"]');
+      if(sw) sw.classList.toggle('on', cb.checked);
+    });
+
+    sched = data.schedule.map(e=>mkEntry(+e.t||0, +e.bow||0, +e.stern||0, +e.surge||0));
+    sel = 0;
+
+    if(data.chart && window.CH && !keepPosition){
+      window.CH.lat0 = data.chart.lat;
+      window.CH.lon0 = data.chart.lon;
+      window.CH.heading0 = data.chart.hdg;
+      if(data.chart.layer)   window.CH.layer = data.chart.layer;
+      if(data.chart.overlay) window.CH.overlay = data.chart.overlay;
+      if(window.pushPos) window.pushPos();
+      if(window.fitManoeuvre) window.fitManoeuvre();
+      if(window.syncUrl) window.syncUrl();
+    }
+    syncSliders(); renderTable(); draw();
+  }
+
+  const setHint = t=>{ const h = $('saveHint'); if(h) h.textContent = t; };
+  const api = async (url, opts)=>{
+    const r = await fetch(url, opts);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  };
+
+  /* ---- library of this computer (server side) ---- */
+  async function refreshLibrary(){
+    const list = $('manList');
+    if(!list) return;
+    try{
+      const j = await api('/api/manoeuvres');
+      const items = j.items || [];
+      list.innerHTML = '';
+      if(!items.length){
+        const o = document.createElement('option');
+        o.value = ''; o.textContent = '\u2014 the library is empty \u2014';
+        list.appendChild(o);
+        setHint('the library of this computer is empty');
+      }else{
+        items.forEach(it=>{
+          const o = document.createElement('option');
+          o.value = it.name;
+          o.textContent = it.name + (it.summary ? '  \u00b7  ' + it.summary : '');
+          list.appendChild(o);
+        });
+        setHint('library: ' + items.length + ' manoeuvre(s) on this computer');
+      }
+    }catch(e){
+      list.innerHTML = '<option value="">\u2014 server not reachable \u2014</option>';
+      setHint('server not reachable \u2014 use \u201cSave to file\u201d');
+    }
+  }
+
+  async function saveToLibrary(){
+    const name = ($('manName').value || '').trim();
+    if(!name){ setHint('give the manoeuvre a name first'); return; }
+    try{
+      await api('/api/manoeuvres', { method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ name:name, data: collectState('manoeuvre') }) });
+      $('manName').value = '';
+      await refreshLibrary();
+      setHint('saved in the library: ' + name);
+    }catch(e){ setHint('server not reachable \u2014 use \u201cSave to file\u201d'); }
+  }
+
+  async function loadFromLibrary(){
+    const name = $('manList').value;
+    if(!name){ setHint('nothing selected in the library'); return; }
+    try{
+      const j = await api('/api/manoeuvres/' + encodeURIComponent(name));
+      applyState(j.data || j);
+      setHint('loaded from the library: ' + name);
+    }catch(e){ setHint('could not load: ' + name); }
+  }
+
+  async function deleteFromLibrary(){
+    const name = $('manList').value;
+    if(!name){ setHint('nothing selected in the library'); return; }
+    try{
+      await api('/api/manoeuvres/' + encodeURIComponent(name), { method:'DELETE' });
+      await refreshLibrary();
+      setHint('deleted from the library: ' + name);
+    }catch(e){ setHint('could not delete: ' + name); }
+  }
+
+  /* ---- local copy in this browser ---- */
+  $('saveLocal')?.addEventListener('click', ()=>{
+    try{
+      localStorage.setItem(SAVE_KEY, JSON.stringify(collectState('manoeuvre')));
+      setHint('local copy kept in this browser');
+    }catch(e){ setHint('could not keep the local copy'); }
+  });
+  $('loadLocal')?.addEventListener('click', ()=>{
+    try{
+      const raw = localStorage.getItem(SAVE_KEY);
+      if(!raw){ setHint('no local copy yet'); return; }
+      applyState(JSON.parse(raw));
+      setHint('local copy loaded');
+    }catch(e){ setHint('the local copy could not be loaded'); }
+  });
+
+  /* ---- a file on the computer ---- */
+  $('downloadMan')?.addEventListener('click', ()=>{
+    const data = collectState('manoeuvre');
+    const nm = ($('manName').value || '').trim();
+    const base = nm ? nm.replace(/[^\w\-]+/g,'-') : 'manoeuvre';
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = base + '-' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setHint('file saved: ' + a.download);
+  });
+  $('loadFileBtn')?.addEventListener('click', ()=> $('loadFile').click());
+  $('loadFile')?.addEventListener('change', ev=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    const rd = new FileReader();
+    rd.onload = ()=>{
+      try{ applyState(JSON.parse(rd.result)); setHint('loaded from file: ' + f.name); }
+      catch(e){ setHint('the file is not a manoeuvre of this simulator'); }
+    };
+    rd.readAsText(f);
+    ev.target.value = '';
+  });
+
+  /* ---- last session: the state of the last run is restored on the next start ---- */
+  var sessionTimer = null, sessionReady = false;
+  function queueSessionSave(){
+    if(!sessionReady) return;
+    clearTimeout(sessionTimer);
+    sessionTimer = setTimeout(saveSession, 700);
+  }
+  window.queueSessionSave = queueSessionSave;
+
+  async function saveSession(){
+    const data = collectState('session');
+    try{ localStorage.setItem(SESSION_KEY, JSON.stringify(data)); }catch(e){}
+    try{
+      await api('/api/session', { method:'PUT',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    }catch(e){}
+  }
+  function loadPrefs(){
+    try{
+      const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+      if(p.autoRestore !== undefined && $('autoRestore')) $('autoRestore').checked = !!p.autoRestore;
+    }catch(e){}
+  }
+  function savePrefs(){
+    try{
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        autoRestore: !!( $('autoRestore') && $('autoRestore').checked ) }));
+    }catch(e){}
+  }
+  $('autoRestore')?.addEventListener('change', ()=>{ savePrefs(); queueSessionSave(); });
+
+  async function restoreSession(){
+    sessionReady = true;
+    if(!($('autoRestore') && $('autoRestore').checked)){
+      setHint('restore of the last session is switched off');
+      return;
+    }
+    const q = new URLSearchParams(location.search);
+    const hasPos = q.has('lat') || q.has('lon');
+    let data = null;
+    try{ const j = await api('/api/session'); if(j && j.data) data = j.data; }catch(e){}
+    if(!data){
+      try{ const raw = localStorage.getItem(SESSION_KEY); if(raw) data = JSON.parse(raw); }catch(e){}
+    }
+    if(data && Array.isArray(data.schedule) && data.schedule.length){
+      try{ applyState(data, hasPos); setHint('the last session is restored'); }
+      catch(e){ setHint('the last session could not be restored'); }
+    }else{
+      setHint('no saved session yet \u2014 the default state is used');
+    }
+  }
+
+  $('saveServer')?.addEventListener('click', saveToLibrary);
+  $('loadServer')?.addEventListener('click', loadFromLibrary);
+  $('delServer')?.addEventListener('click', deleteFromLibrary);
+  loadPrefs();
+  window.addEventListener('load', ()=>{
+    refreshLibrary();
+    setTimeout(restoreSession, 120);
+  });
+
+  /* v1.9: read-only export for the chart module. Nothing above is changed:
+     the chart only reads the state of the model, it never writes it. */
+  window.SPS = {
+    stateAtT, segments, segCentre, derive, deriveEvent, hullPoints,
+    sched: ()=>sched,
+    horizon: ()=>+$('horiz').value,
+    sig: ()=>sched.map(e=>[e.t,e.bow,e.stern,e.surge].join(',')).join('|')
+             +'#'+$('L').value+'#'+$('beam').value+'#'+$('lcg').value+'#'+$('horiz').value
+  };
+})();
+</script>
+<script>
+/* ---------- v1.8: instrument panel behaviour (steppers, segments, switch) ---------- */
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  /* steppers: change a native range input and let the model react */
+  document.querySelectorAll('[data-step]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const inp = $(b.dataset.step);
+      if(!inp) return;
+      const min = inp.min==='' ? -Infinity : +inp.min;
+      const max = inp.max==='' ?  Infinity : +inp.max;
+      let v = (+inp.value) + (+b.dataset.d);
+      v = Math.min(max, Math.max(min, v));
+      inp.value = v;
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+    });
+  });
+
+  /* segmented controls: they drive the native select, which stays in the DOM */
+  function syncSeg(seg){
+    const target = $(seg.dataset.seg);
+    if(!target) return;
+    seg.querySelectorAll('button').forEach(b=> b.classList.toggle('on', target.value === b.dataset.v));
+  }
+  document.querySelectorAll('[data-seg]').forEach(seg=>{
+    seg.querySelectorAll('button').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const target = $(seg.dataset.seg);
+        if(!target) return;
+        target.value = b.dataset.v;
+        target.dispatchEvent(new Event('input',  {bubbles:true}));
+        target.dispatchEvent(new Event('change', {bubbles:true}));
+        syncSeg(seg);
+      });
+    });
+    const target = $(seg.dataset.seg);
+    if(target){
+      target.addEventListener('input',  ()=>syncSeg(seg));
+      target.addEventListener('change', ()=>syncSeg(seg));
+    }
+    syncSeg(seg);
+  });
+
+  /* switch: every data-switch element drives the native checkbox behind it */
+  document.querySelectorAll('[data-switch]').forEach(sw=>{
+    const cb = $(sw.dataset.switch);
+    if(!cb) return;
+    const syncSw = ()=> sw.classList.toggle('on', !!cb.checked);
+    sw.addEventListener('click', ()=>{
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event('input',  {bubbles:true}));
+      cb.dispatchEvent(new Event('change', {bubbles:true}));
+      syncSw();
+    });
+    cb.addEventListener('input',  syncSw);
+    cb.addEventListener('change', syncSw);
+    syncSw();
+  });
+})();
+</script>
+<script>
+/* ---------- v1.9: chart module — real map, Web Mercator tiles, own charts ---------- */
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const RAD = 180/Math.PI, D2R = Math.PI/180, TILE = 256;
+  const CIRC = 40075016.686;                 // circumference of the Mercator plane, m
+  const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+
+  const CH = {
+    z: 17, lat0: 56.9496, lon0: 24.1052, heading0: 0,
+    layer:'osm', overlay:'seamark', opacity:0.9, offline:false, lockZ:false,
+    vx:0, vy:0, vw:1200, vh:700,
+    img:null, gref:null, pickMode:false, drag:null, moveShip:false,
+    server: false,              /* confirmed by the probe of the local server, see init() */
+    /* the local server serves the tiles from its own disk cache and answers the
+       manoeuvre library; on a static website (or a file) the tiles are taken
+       directly from the Internet and the server-only parts switch themselves off. */
+    lastSig:'', lastKey:''
+  };
+
+  /* ---------------- projection ---------------- */
+  const mercX = lon => (lon+180)/360;                              // 0..1 to the east
+  const mercY = lat => { const s=Math.sin(clamp(lat,-85,85)*D2R);
+                         return 0.5 - Math.log((1+s)/(1-s))/(4*Math.PI); };  // 0..1 to the south
+  const invLat = my => (2*Math.atan(Math.exp(Math.PI*(1-2*my))) - Math.PI/2)*RAD;
+  const invLon = mx => mx*360 - 180;
+  const worldPx = (v,z)=> v*TILE*Math.pow(2,z);                    // normalised -> pixel at zoom z
+  const mpp = (z,lat)=> CIRC*Math.cos(clamp(lat,-85,85)*D2R)/(TILE*Math.pow(2,z));  // ground m per pixel
+
+  // the chart frame: the simulation world is drawn on a north-up chart.
+  // All drawing coordinates are relative to the left upper corner of the view,
+  // so that the numbers stay small (the absolute coordinates of a high zoom
+  // level are too large for the rasteriser).
+  function frame(){
+    const pxS = worldPx(mercX(CH.lon0), CH.z);
+    const pyS = worldPx(mercY(CH.lat0), CH.z);
+    const m   = mpp(CH.z, CH.lat0);
+    const th  = (90-CH.heading0)*D2R;                 // initial course as an angle CCW from east
+    return {pxS, pyS, m, c:Math.cos(th), s:Math.sin(th), lat0:CH.lat0, lon0:CH.lon0};
+  }
+  const toChart   = (X,Y,F)=>{ const E=X*F.c-Y*F.s, N=X*F.s+Y*F.c; return [F.pxS+E/F.m-CH.vx, F.pyS-N/F.m-CH.vy]; };
+  const groundAt  = (px,py,F)=>({E:(px-F.pxS)*F.m, N:-(py-F.pyS)*F.m});   // absolute chart pixels
+  const chartAt   = (E,N,F)=>[F.pxS+E/F.m, F.pyS-N/F.m];
+
+  function niceStep(t){
+    if(!(t>0)) return 1;
+    const e = Math.pow(10, Math.floor(Math.log10(t))), f = t/e;
+    return (f<1.5?1:f<3.5?2:f<7.5?5:10)*e;
+  }
+  function svgSize(){
+    const svg=$('chartSvg');
+    return {w:Math.max(320, svg.clientWidth||1200), h:Math.max(240, svg.clientHeight||700)};
+  }
+  function svgPoint(ev){
+    const svg=$('chartSvg'), pt=svg.createSVGPoint(), m=svg.getScreenCTM();
+    if(!m) return [0,0];
+    pt.x=ev.clientX; pt.y=ev.clientY;
+    const q=pt.matrixTransform(m.inverse());
+    return [q.x,q.y];
+  }
+  function fmtLat(v){ return Math.abs(v).toFixed(5)+'° '+(v>=0?'N':'S'); }
+  function fmtLon(v){ return Math.abs(v).toFixed(5)+'° '+(v>=0?'E':'W'); }
+
+  /* ---------------- tiles ---------------- */
+  const UPSTREAM = {
+    osm:      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    seamark:  'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+    harbour:  'https://tiles.openseamap.org/harbour/{z}/{x}/{y}.png',
+    opentopo: 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+    esri:     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+  };
+  function tileUrl(layer,z,x,y){
+    if(CH.server) return '/tiles/'+layer+'/'+z+'/'+x+'/'+y+'.png'+(CH.offline?'?offline=1':'');
+    const u = UPSTREAM[layer]; if(!u) return '';
+    return u.replace('{z}',z).replace('{x}',x).replace('{y}',y);
+  }
+  function visibleTiles(){
+    const n = 1<<CH.z, out=[];
+    const x0=Math.floor(CH.vx/TILE), x1=Math.floor((CH.vx+CH.vw)/TILE);
+    const y0=Math.floor(CH.vy/TILE), y1=Math.floor((CH.vy+CH.vh)/TILE);
+    for(let y=y0;y<=y1;y++){
+      if(y<0 || y>=n) continue;
+      for(let x=x0;x<=x1;x++) out.push({x:((x%n)+n)%n, y});
+    }
+    return out;
+  }
+  function tilesHTML(){
+    const ts=visibleTiles(); let h='';
+    // the tile positions are taken relative to the view: the absolute coordinates
+    // of a high zoom level are too large for the rasteriser
+    const dx=CH.vx, dy=CH.vy;
+    const img=(t,layer)=>`<image href="${tileUrl(layer,CH.z,t.x,t.y)}" x="${(t.x*TILE-dx).toFixed(2)}" y="${(t.y*TILE-dy).toFixed(2)}"
+      width="${TILE}" height="${TILE}" preserveAspectRatio="none"/>`;
+    for(const t of ts) h += img(t, CH.layer);
+    if(CH.overlay) for(const t of ts) h += img(t, CH.overlay);
+    return h;
+  }
+
+  /* ---------------- the chart itself ---------------- */
+  function hullPts(st,D,F){
+    const hp=window.SPS.hullPoints(D.L,D.B,D.lam), c=Math.cos(st.psi), s=Math.sin(st.psi);
+    return hp.map(p=>{
+      const wx = st.X + p[0]*c - p[1]*s, wy = st.Y + p[0]*s + p[1]*c;
+      const q = toChart(wx,wy,F);
+      return q[0].toFixed(1)+','+q[1].toFixed(1);
+    }).join(' ');
+  }
+  function sceneHTML(){
+    const S=window.SPS, F=frame(), PW=1;   // PW: one screen pixel in chart units
+                                         // (the view box follows the element size,
+                                         //  so one chart unit is one screen pixel)
+    if(!S) return '';
+    const D=S.deriveEvent(S.sched()[0]), H=S.horizon()*60, segs=S.segments();
+    // the layer switches of the control panel also work on the chart
+    const showCircles = $('showCircles')?.checked !== false;
+    const showPP = $('showPP')?.checked !== false;
+    const showGhostPP = $('showGhostPP')?.checked !== false;
+
+    // track
+    const breaks=[0];
+    for(const e of S.sched()) if(e.t>0 && e.t<H) breaks.push(e.t);
+    breaks.push(H);
+    const trk=[];
+    for(let k=0;k<breaks.length-1;k++){
+      const t0=breaks[k], t1=breaks[k+1], n=24;
+      for(let i=0;i<=n;i++){
+        if(k>0 && i===0) continue;
+        const st=S.stateAtT(t0+(t1-t0)*i/n);
+        trk.push(toChart(st.X,st.Y,F));
+      }
+    }
+    const ts = trk.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+    const track = `<polyline points="${ts}" fill="none" stroke="#0b1f30" stroke-opacity=".55" stroke-width="${(5*PW).toFixed(3)}" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="${ts}" fill="none" stroke="#ffd166" stroke-width="${(2.4*PW).toFixed(3)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+    // ghost ships + optional pivot point on them
+    const gStep = S.horizon()<=12?1:5;
+    let ghosts='', ghostPP='';
+    for(let m=gStep;m<=S.horizon();m+=gStep){
+      const st=S.stateAtT(m*60), pts=hullPts(st,D,F);
+      const q=toChart(st.X,st.Y,F);
+      ghosts += `<polygon points="${pts}" fill="#9fb3c8" fill-opacity=".14" stroke="#12283a" stroke-opacity=".9" stroke-width="${(2.6*PW).toFixed(3)}"/>
+                 <polygon points="${pts}" fill="none" stroke="#dce8f2" stroke-opacity=".85" stroke-width="${(1.1*PW).toFixed(3)}"/>
+                 <text x="${q[0].toFixed(1)}" y="${(q[1]-14).toFixed(1)}" fill="#f3f8fc" font-size="11" text-anchor="middle"
+                       stroke="#0b1f30" stroke-width="3" paint-order="stroke">+${m} min</text>`;
+      if(showGhostPP){
+        const sg = segs.find(g=>m*60>=g.t0 && m*60<g.t1) || segs[segs.length-1];
+        if(sg && sg.D.ppFromBow!==null){
+          const bodyX=(sg.D.L-sg.D.ppFromBow)-sg.D.lam*sg.D.L;
+          const c=Math.cos(st.psi), s=Math.sin(st.psi);
+          const pp=toChart(st.X+bodyX*c, st.Y+bodyX*s, F);
+          ghostPP += `<circle cx="${pp[0].toFixed(1)}" cy="${pp[1].toFixed(1)}" r="5" fill="#ff914d" stroke="#fff" stroke-width="1"/>
+                      <text x="${pp[0].toFixed(1)}" y="${(pp[1]-8).toFixed(1)}" fill="#ffb77d" font-size="9" text-anchor="middle"
+                            stroke="#0b1f30" stroke-width="2" paint-order="stroke">PP</text>`;
+        }
+      }
+    }
+
+    // start and end vessels
+    const st0=S.stateAtT(0), stN=S.stateAtT(H);
+    const h0=hullPts(st0,D,F), hN=hullPts(stN,D,F);
+    const ship = `<polygon points="${h0}" fill="#c8d4dd" fill-opacity=".35" stroke="#08161f" stroke-width="${(4*PW).toFixed(3)}"/>
+                  <polygon points="${h0}" fill="none" stroke="#ffffff" stroke-width="${(1.7*PW).toFixed(3)}"/>
+                  <polygon points="${hN}" fill="#c8d4dd" fill-opacity=".9" stroke="#08161f" stroke-width="${(4*PW).toFixed(3)}"/>
+                  <polygon points="${hN}" fill="none" stroke="#ffffff" stroke-width="${(1.7*PW).toFixed(3)}"/>`;
+
+    // turning circles
+    let circles='';
+    if(showCircles) segs.forEach((sg,i)=>{
+      const c=S.segCentre(sg); if(!c) return;
+      const q=toChart(c.x,c.y,F), r=c.R/F.m;
+      circles += `<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${r.toFixed(1)}" fill="none"
+        stroke="#0b1f30" stroke-opacity=".45" stroke-width="${(3.2*PW).toFixed(3)}"/>
+        <circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${r.toFixed(1)}" fill="none" stroke="#7ee8fa"
+        stroke-opacity="${i===0?'.85':'.4'}" stroke-width="${(1.5*PW).toFixed(3)}" stroke-dasharray="${(7*PW).toFixed(2)} ${(5*PW).toFixed(2)}"/>`;
+    });
+
+    // pivot points
+    let pps='';
+    if(showPP) segs.forEach(sg=>{
+      if(sg.D.ppFromBow===null) return;
+      const bodyX=(sg.D.L-sg.D.ppFromBow)-sg.D.lam*sg.D.L;
+      const c0=Math.cos(sg.psi0), s0=Math.sin(sg.psi0);
+      const q=toChart(sg.X0+bodyX*c0, sg.Y0+bodyX*s0, F);
+      const r=Math.max(5, 7*PW);
+      pps += `<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${(r*1.9).toFixed(1)}" fill="#ff914d" fill-opacity=".28"
+                stroke="#ff8b40" stroke-width="${(1.4*PW).toFixed(3)}"/>
+              <circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${(r*0.55).toFixed(1)}" fill="#ff914d" stroke="#ffffff" stroke-width="${(1*PW).toFixed(3)}"/>`;
+    });
+
+    // north arrow and scale bar (relative to the view)
+    const nx=CH.vw-42, ny=46;
+    const north = `<g opacity=".9"><path d="M${nx} ${ny-22} L${nx-9} ${ny+11} L${nx} ${ny+4} L${nx+9} ${ny+11} Z"
+        fill="#e8f1f8" stroke="#0b1f30" stroke-width="1.2" stroke-linejoin="round"/>
+      <text x="${nx}" y="${ny+27}" fill="#e8f1f8" font-size="12" text-anchor="middle" stroke="#0b1f30" stroke-width="3" paint-order="stroke">N</text></g>`;
+    const barM = niceStep(140*F.m), barPx = barM/F.m;
+    const bx=18, by=CH.vh-20;
+    const bar = `<g>
+      <line x1="${bx}" y1="${by}" x2="${(bx+barPx).toFixed(1)}" y2="${by}" stroke="#0b1f30" stroke-opacity=".65" stroke-width="5"/>
+      <line x1="${bx}" y1="${by}" x2="${(bx+barPx).toFixed(1)}" y2="${by}" stroke="#e8f1f8" stroke-width="2"/>
+      <line x1="${bx}" y1="${by-5}" x2="${bx}" y2="${by+5}" stroke="#e8f1f8" stroke-width="2"/>
+      <line x1="${(bx+barPx).toFixed(1)}" y1="${by-5}" x2="${(bx+barPx).toFixed(1)}" y2="${by+5}" stroke="#e8f1f8" stroke-width="2"/>
+      <text x="${(bx+barPx/2).toFixed(1)}" y="${by-9}" fill="#e8f1f8" font-size="11" text-anchor="middle"
+            stroke="#0b1f30" stroke-width="3" paint-order="stroke">${barM>=1000?(barM/1000).toFixed(1)+' km':barM.toFixed(0)+' m'}</text></g>`;
+
+    return circles+ghosts+ghostPP+track+ship+pps+north+bar;
+  }
+
+  /* ---------------- own chart (two-point georeference) ---------------- */
+  function placePickImage(){
+    const g=CH.gref; if(!g) return;
+    const k=Math.min(CH.vw/g.w, CH.vh/g.h)*0.78;
+    g.k=k; g.ox=(CH.vw-g.w*k)/2; g.oy=(CH.vh-g.h*k)/2;
+  }
+  function renderOwn(){
+    const g=$('chartOwn'), p=$('chartPick');
+    g.innerHTML=''; p.innerHTML='';
+    if(CH.img){
+      const K=TILE*Math.pow(2,CH.z), t=CH.img.tf;
+      const m=[t.a*K,t.b*K,t.c*K,t.d*K,(t.e-CH.vx/K)*K,(t.f-CH.vy/K)*K].map(v=>v.toFixed(6)).join(',');
+      g.innerHTML = `<image href="${CH.img.url}" x="0" y="0" width="${CH.img.w}" height="${CH.img.h}"
+        preserveAspectRatio="none" transform="matrix(${m})" opacity="0.96"/>`;
+    }
+    if(CH.gref){
+      const gr=CH.gref, k=gr.k, ox=gr.ox, oy=gr.oy;
+      let marks='';
+      gr.pick.forEach((p,i)=>{
+        const cx=ox+p.ix*k, cy=oy+p.iy*k;
+        marks += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="10" fill="none" stroke="#ff914d" stroke-width="3"/>
+                  <text x="${cx.toFixed(1)}" y="${(cy-15).toFixed(1)}" fill="#ff914d" font-size="15" font-weight="bold"
+                        text-anchor="middle" stroke="#122c41" stroke-width="3" paint-order="stroke">${i+1}</text>`;
+      });
+      p.innerHTML = `<image href="${gr.url}" x="0" y="0" width="${gr.w}" height="${gr.h}" preserveAspectRatio="none"
+          transform="matrix(${k},0,0,${k},${ox},${oy})" opacity="0.95"/>
+        <rect x="${ox.toFixed(1)}" y="${oy.toFixed(1)}" width="${(gr.w*k).toFixed(1)}" height="${(gr.h*k).toFixed(1)}"
+          fill="none" stroke="#ff914d" stroke-width="2" stroke-dasharray="8 6"/>${marks}`;
+    }
+  }
+  function applyGref(){
+    const gr=CH.gref;
+    const hint = t => { $('mapFileInfo').textContent = t; };
+    if(!gr || gr.pick.length<2){ hint('click two points on the image first'); return; }
+    const la1=parseFloat($('g1lat').value), lo1=parseFloat($('g1lon').value);
+    const la2=parseFloat($('g2lat').value), lo2=parseFloat($('g2lon').value);
+    if(!isFinite(la1)||!isFinite(lo1)||!isFinite(la2)||!isFinite(lo2)){ hint('enter the coordinates of both points'); return; }
+    const p1=gr.pick[0], p2=gr.pick[1];
+    const w1={x:mercX(lo1), y:mercY(la1)}, w2={x:mercX(lo2), y:mercY(la2)};
+    const di={x:p2.ix-p1.ix, y:p2.iy-p1.iy}, dw={x:w2.x-w1.x, y:w2.y-w1.y};
+    const den=di.x*di.x+di.y*di.y;
+    if(den<1){ hint('the two points are too close to each other'); return; }
+    const qx=(dw.x*di.x+dw.y*di.y)/den, qy=(dw.y*di.x-dw.x*di.y)/den;
+    const a=qx, b=qy, c=-qy, d=qx;
+    CH.img={url:gr.url, w:gr.w, h:gr.h, tf:{a,b,c,d,e:w1.x-(a*p1.ix+c*p1.iy), f:w1.y-(b*p1.ix+d*p1.iy)}};
+    const res = Math.hypot(qx,qy)*CIRC*Math.cos(la1*D2R);       // ground metres per image pixel
+    CH.gref=null; CH.pickMode=false;
+    $('grefGrid').style.display='none';
+    $('chartSea').classList.remove('pickmode');
+    hint(`own chart placed · ${gr.w}×${gr.h} px · ${res.toFixed(2)} m/px`);
+    draw();
+  }
+  function loadOwnChart(file){
+    const rd=new FileReader();
+    rd.onload=()=>{
+      const url=rd.result, img=new Image();
+      img.onload=()=>{
+        CH.gref={url, w:img.naturalWidth, h:img.naturalHeight, pick:[], k:1, ox:0, oy:0};
+        CH.pickMode=true;
+        $('grefGrid').style.display='grid';
+        $('mapFileInfo').textContent=`${file.name} — ${img.naturalWidth}×${img.naturalHeight} px · click two points on the image`;
+        placePickImage(); draw();
+      };
+      img.src=url;
+    };
+    rd.readAsDataURL(file);
+  }
+
+  /* ---------------- view ---------------- */
+  function fitManoeuvre(){
+    const S=window.SPS; if(!S) return;
+    const D=S.deriveEvent(S.sched()[0]), H=S.horizon()*60, F=frame();
+    let e0=Infinity,e1=-Infinity,n0=Infinity,n1=-Infinity;
+    const N=120;
+    for(let i=0;i<=N;i++){
+      const st=S.stateAtT(H*i/N);
+      const E=st.X*F.c-st.Y*F.s, Nn=st.X*F.s+st.Y*F.c;
+      e0=Math.min(e0,E); e1=Math.max(e1,E); n0=Math.min(n0,Nn); n1=Math.max(n1,Nn);
+    }
+    const {w,h}=svgSize();
+    const need = Math.max((e1-e0)/w, (n1-n0)/h)*1.18;        // metres per pixel required
+    if(!CH.lockZ) CH.z = clamp(Math.round(Math.log2(CIRC*Math.cos(CH.lat0*D2R)/(TILE*need))), 2, 19);
+    const F2=frame();
+    const c=chartAt((e0+e1)/2, (n0+n1)/2, F2);
+    CH.vw=w; CH.vh=h; CH.vx=c[0]-w/2; CH.vy=c[1]-h/2;
+  }
+  function centreOnShip(){
+    const F=frame(), {w,h}=svgSize();
+    CH.vw=w; CH.vh=h; CH.vx=F.pxS-w/2; CH.vy=F.pyS-h/2;
+  }
+  function zoomBy(dz){
+    const F0=frame(), {w,h}=svgSize();
+    const g=groundAt(CH.vx+CH.vw/2, CH.vy+CH.vh/2, F0);
+    const nz=clamp(CH.z+dz,2,19); if(nz===CH.z) return;
+    CH.z=nz;
+    const F1=frame(), q=chartAt(g.E,g.N,F1);
+    CH.vw=w; CH.vh=h; CH.vx=q[0]-w/2; CH.vy=q[1]-h/2;
+  }
+
+  /* ---------------- readout ----------------
+     The velocity set active at a given moment: the same rule as in the model
+     (the segment whose interval contains the time). Only read, never written. */
+  const KN = 0.514444;                       // knots -> m/s
+  function velAt(t){
+    const ss=window.SPS.segments();
+    let g=ss[0];
+    for(const s of ss) if(s.t0<=t+1e-9) g=s;
+    if(!g) return {u:0, vb:0, vs:0};
+    return {u:g.D.u/KN, vb:g.D.vb/KN, vs:g.D.vs/KN};
+  }
+  const fmtV = v => (v>=0?'+':'−')+Math.abs(v).toFixed(1);
+  const velLine = v =>
+    ` · u <b>${fmtV(v.u)}</b> kn · bow <b>${fmtV(v.vb)}</b> kn · stern <b>${fmtV(v.vs)}</b> kn`;
+
+  function readout(){
+    const S=window.SPS, F=frame();
+    if(!S){ $('chartRead').innerHTML=''; return; }
+    const H=S.horizon()*60, stN=S.stateAtT(H);
+    const k=Math.cos(CH.lat0*D2R);
+    const geo = (X,Y)=>{
+      const E=X*F.c-Y*F.s, N=X*F.s+Y*F.c;
+      return [invLat(mercY(CH.lat0)-N/(CIRC*k)), invLon(mercX(CH.lon0)+E/(CIRC*k))];
+    };
+    const gN=geo(stN.X, stN.Y);
+    const hdg=(CH.heading0 - stN.psi*RAD + 3600)%360;
+    const vc=Math.abs(Math.cos(CH.lat0*D2R));
+    const speed=(stN.psi||0);
+    const v0=velAt(0), vN=velAt(H);
+    $('chartRead').innerHTML =
+      `<span><span class="k">start</span> <b>${fmtLat(CH.lat0)}</b> <b>${fmtLon(CH.lon0)}</b> · course <b>${String(Math.round(CH.heading0)).padStart(3,'0')}°</b>${velLine(v0)}</span>`+
+      `<span><span class="k">at +${S.horizon()} min</span> <b>${fmtLat(gN[0])}</b> <b>${fmtLon(gN[1])}</b> · heading <b>${hdg.toFixed(0)}°</b>${velLine(vN)}</span>`+
+      `<span><span class="k">cg</span> X <b>${stN.X.toFixed(0)}</b> m · Y <b>${stN.Y.toFixed(0)}</b> m · ψ <b>${(stN.psi*RAD).toFixed(1)}°</b></span>`+
+      `<span><span class="k">scale</span> <b>${(F.m).toFixed(2)}</b> m/px · z<b>${CH.z}</b> · ${CH.layer}${CH.overlay?'+'+CH.overlay:''}${CH.offline?' · cache only':''}</span>`;
+  }
+
+  /* ---------------- vessel position: fields, link, chart mode ---------------- */
+  function pushPos(){
+    $('mapLat').value = CH.lat0.toFixed(6);
+    $('mapLon').value = CH.lon0.toFixed(6);
+    $('mapHdg').value = CH.heading0.toFixed(1);
+  }
+  window.CH = CH;
+  window.pushPos = pushPos;
+  window.fitManoeuvre = fitManoeuvre;
+  window.syncUrl = syncUrl;
+  function syncUrl(){
+    // the position of the vessel is kept in the link: the chart opens again
+    // exactly where it was left, and the link can be sent to somebody else
+    try{
+      const q=new URLSearchParams(location.search);
+      q.set('lat', CH.lat0.toFixed(6));
+      q.set('lon', CH.lon0.toFixed(6));
+      q.set('hdg', CH.heading0.toFixed(1));
+      history.replaceState(null,'',location.pathname+'?'+q.toString());
+    }catch(e){ /* the fields still hold the position */ }
+  }
+  function setMode(mode){
+    const b=$('chartMode'); if(!b) return;
+    const ship=(mode==='ship');
+    b.textContent = ship ? 'Chart: move vessel' : 'Chart: pan';
+    b.className = 'badge mode '+(ship?'ship':'on');
+    $('chartSvg').classList.toggle('moveship', ship);
+  }
+
+  /* ---------------- initial state from the URL ----------------
+     ?lat=56.9496&lon=24.1052&hdg=0&z=17&layer=osm&overlay=seamark&offline=1
+     A link like this opens the simulator directly on a given place.        */
+  function stateFromUrl(){
+    let q;
+    try{ q = new URLSearchParams(location.search); }catch(e){ return; }
+    const la = parseFloat(q.get('lat')), lo = parseFloat(q.get('lon'));
+    if(isFinite(la)) CH.lat0 = clamp(la,-85,85);
+    if(isFinite(lo)) CH.lon0 = lo;
+    const hd = parseFloat(q.get('hdg'));
+    if(isFinite(hd)) CH.heading0 = ((hd%360)+360)%360;
+    const z = parseInt(q.get('z'),10);
+    if(isFinite(z)){ CH.z = clamp(z,2,19); CH.lockZ = true; }
+    const lay = q.get('layer');
+    if(lay && UPSTREAM[lay]) CH.layer = lay;
+    const ov = q.get('overlay');
+    if(ov !== null) CH.overlay = UPSTREAM[ov] ? ov : '';
+    if(q.get('offline')==='1') CH.offline = true;
+    $('mapLat').value = CH.lat0.toFixed(6);
+    $('mapLon').value = CH.lon0.toFixed(6);
+    $('mapHdg').value = CH.heading0.toFixed(1);
+    $('mapLayer').value = CH.layer;
+    $('mapOverlay').value = CH.overlay;
+    $('mapOffline').checked = CH.offline;
+  }
+
+  /* ---------------- main draw ---------------- */
+  function draw(){
+    const svg=$('chartSvg');
+    if(!svg || !$('chartScene')) return;
+    const F=frame(), {w,h}=svgSize();
+    // the view box always follows the size of the element: one chart pixel = one screen pixel
+    if(Math.abs(CH.vw-w)>0.5 || Math.abs(CH.vh-h)>0.5){
+      const cx=CH.vx+CH.vw/2, cy=CH.vy+CH.vh/2;
+      CH.vw=w; CH.vh=h; CH.vx=cx-w/2; CH.vy=cy-h/2;
+    }
+    svg.setAttribute('viewBox', `0 0 ${CH.vw.toFixed(2)} ${CH.vh.toFixed(2)}`);
+    const bg=$('chartBg');
+    if(bg){ bg.setAttribute('x',0); bg.setAttribute('y',0); bg.setAttribute('width',CH.vw); bg.setAttribute('height',CH.vh); }
+    const key=[CH.z,CH.layer,CH.overlay,CH.offline,
+               visibleTiles().map(t=>t.x+'/'+t.y).join(',')].join('|');
+    if(key!==CH.lastKey){ CH.lastKey=key; $('chartTiles').innerHTML=tilesHTML(); }
+    $('chartTiles').setAttribute('opacity', CH.opacity);
+    renderOwn();
+    $('chartScene').innerHTML=sceneHTML();
+    $('mapZval').textContent='z'+CH.z;
+    $('mapOpacityVal').textContent=Math.round(CH.opacity*100)+'%';
+    // the horizon control next to the chart follows the model
+    const hv=$('horizTop');
+    if(hv && +hv.value!==+$('horiz').value){
+      hv.value=$('horiz').value;
+      $('horizTopVal').textContent=$('horiz').value+' min';
+    }
+    readout();
+  }
+
+  /* ---------------- controls ---------------- */
+  function init(){
+    const svg=$('chartSvg');
+    svg.innerHTML = `<rect id="chartBg" x="0" y="0" width="100%" height="100%" fill="#0b1f30"/>
+                     <g id="chartTiles"></g><g id="chartOwn"></g><g id="chartPick"></g><g id="chartScene"></g>`;
+    stateFromUrl();
+    // the view is placed on the vessel before the first drawing, so that no
+    // tiles of the wrong corner of the world are asked for
+    fitManoeuvre();
+
+    $('mapLayer').addEventListener('change', e=>{ CH.layer=e.target.value; draw();
+      if(window.queueSessionSave) window.queueSessionSave(); });
+    $('mapOverlay').addEventListener('change', e=>{ CH.overlay=e.target.value; draw(); });
+    $('mapOpacity').addEventListener('input', e=>{ CH.opacity=(+e.target.value)/100; draw(); });
+    $('mapZin').addEventListener('click', ()=>{ zoomBy(1); draw(); });
+    $('mapZout').addEventListener('click', ()=>{ zoomBy(-1); draw(); });
+    $('mapFit').addEventListener('click', ()=>{ CH.lockZ=false; fitManoeuvre(); draw(); });
+    $('mapShip').addEventListener('click', ()=>{ centreOnShip(); draw(); });
+
+    // second horizon control, next to the chart
+    const syncHoriz = ()=>{
+      const v = +$('horiz').value;
+      $('horizTop').value = v;
+      $('horizTopVal').textContent = v + ' min';
+    };
+    $('horizTop').addEventListener('input', ()=>{
+      $('horiz').value = $('horizTop').value;
+      $('horiz').dispatchEvent(new Event('input', {bubbles:true}));
+      syncHoriz();
+    });
+    $('horizIn')?.addEventListener('click', ()=>{
+      const v = Math.min(30, +$('horiz').value + 1);
+      $('horiz').value = v;
+      $('horiz').dispatchEvent(new Event('input', {bubbles:true}));
+      syncHoriz();
+    });
+    $('horizOut')?.addEventListener('click', ()=>{
+      const v = Math.max(0, +$('horiz').value - 1);
+      $('horiz').value = v;
+      $('horiz').dispatchEvent(new Event('input', {bubbles:true}));
+      syncHoriz();
+    });
+    $('horiz').addEventListener('input', syncHoriz);
+    syncHoriz();
+
+    // move the vessel by 50 m without moving the view
+    const nudgeShip = (dN, dE)=>{
+      const k = Math.cos(CH.lat0 * D2R);
+      CH.lat0 = clamp(CH.lat0 + dN/(CIRC/360), -85, 85);
+      CH.lon0 += dE/(CIRC/360 * k);
+      pushPos();
+      syncUrl();
+      draw();                       // the view stays where it is
+      if(window.queueSessionSave) window.queueSessionSave();
+    };
+    $('nudgeN')?.addEventListener('click', ()=>nudgeShip(50, 0));
+    $('nudgeS')?.addEventListener('click', ()=>nudgeShip(-50, 0));
+    $('nudgeE')?.addEventListener('click', ()=>nudgeShip(0, 50));
+    $('nudgeW')?.addEventListener('click', ()=>nudgeShip(0, -50));
+    const pos = ()=>{
+      const la=parseFloat($('mapLat').value), lo=parseFloat($('mapLon').value);
+      const hdv=parseFloat($('mapHdg').value), hd=isFinite(hdv)?hdv:0;
+      if(!isFinite(la)||!isFinite(lo)) return;
+      CH.lat0=clamp(la,-85,85); CH.lon0=lo; CH.heading0=((hd%360)+360)%360;
+      fitManoeuvre(); draw(); syncUrl();
+      if(window.queueSessionSave) window.queueSessionSave();
+    };
+    let posTimer=null;
+    const posLater=()=>{ clearTimeout(posTimer); posTimer=setTimeout(pos,400); };
+    ['mapLat','mapLon','mapHdg'].forEach(id=>{
+      $(id).addEventListener('change', pos);
+      $(id).addEventListener('input', posLater);
+    });
+
+    /* v1.15: the course is set in steps, with the arrows up and down */
+    const stepCourse = (delta, big)=>{
+      const v = parseFloat($('mapHdg').value);
+      const cur = isFinite(v) ? v : 0;
+      const step = big ? 5 : 1;
+      const hd = ((cur + delta*step) % 360 + 360) % 360;
+      $('mapHdg').value = hd.toFixed(1);
+      pos();
+      if(window.queueSessionSave) window.queueSessionSave();
+    };
+    $('hdgUp')?.addEventListener('click',   e=>stepCourse(+1, e.shiftKey));
+    $('hdgDown')?.addEventListener('click', e=>stepCourse(-1, e.shiftKey));
+    $('mapHdg')?.addEventListener('keydown', e=>{
+      if(e.key === 'ArrowUp'){ e.preventDefault(); stepCourse(+1, e.shiftKey); }
+      if(e.key === 'ArrowDown'){ e.preventDefault(); stepCourse(-1, e.shiftKey); }
+    });
+
+    // offline switch
+    const offBox=$('mapOffline');
+    const syncOffline=()=>{
+      if(offBox.checked && !CH.server){
+        offBox.checked=false;
+        hint('the offline mode needs the local application (Launch Ship Pivot Point Simulator.cmd)');
+      }
+      CH.offline=offBox.checked;
+      const b=$('mapBadge');
+      b.textContent = CH.offline ? 'Map: offline (cache)' : 'Map: online';
+      b.className = 'badge '+(CH.offline?'off':'on');
+      draw();
+    };
+    offBox.addEventListener('change', syncOffline);
+    offBox.addEventListener('input', syncOffline);
+    syncOffline();
+
+    // vessel mode: the drag moves the vessel, not the map
+    const mvBox=$('mapMoveShip');
+    const syncMove=()=>{
+      CH.moveShip=!!mvBox.checked;
+      setMode(CH.moveShip?'ship':'pan');
+      draw();
+    };
+    mvBox.addEventListener('change', syncMove);
+    mvBox.addEventListener('input', syncMove);
+    syncMove();
+
+    // cache the visible tiles
+    $('mapCache').addEventListener('click', cacheView);
+    $('mapFindGo').addEventListener('click', findPlace);
+
+    // own chart
+    $('mapFile').addEventListener('change', e=>{
+      const f=e.target.files && e.target.files[0];
+      if(f) loadOwnChart(f);
+    });
+    $('mapClear').addEventListener('click', ()=>{
+      CH.img=null; CH.gref=null; CH.pickMode=false;
+      $('grefGrid').style.display='none'; $('mapFile').value='';
+      $('mapFileInfo').textContent='No own chart loaded.';
+      draw();
+    });
+    $('grefApply').addEventListener('click', applyGref);
+    $('grefCancel').addEventListener('click', ()=>{
+      CH.gref=null; CH.pickMode=false;
+      $('grefGrid').style.display='none';
+      $('mapFileInfo').textContent='No own chart loaded.';
+      draw();
+    });
+
+    // wheel zoom / drag pan / click for the georeference
+    svg.addEventListener('wheel', ev=>{
+      ev.preventDefault();
+      const p=svgPoint(ev), F0=frame();
+      const g=groundAt(p[0]+CH.vx, p[1]+CH.vy, F0);
+      const nz=clamp(CH.z+(ev.deltaY<0?1:-1),2,19);
+      if(nz===CH.z) return;
+      CH.z=nz;
+      const F1=frame(), q=chartAt(g.E,g.N,F1);
+      CH.vw=svgSize().w; CH.vh=svgSize().h;
+      // the ground point under the cursor must stay under the cursor:
+      //   vx_new + p = q   ->   vx_new = q - p
+      CH.vx=q[0]-p[0]; CH.vy=q[1]-p[1];
+      draw();
+    }, {passive:false});
+    svg.addEventListener('pointerdown', ev=>{
+      if(CH.pickMode) return;
+      const p=svgPoint(ev);
+      if(CH.moveShip || ev.shiftKey){
+        // the frame is frozen for the whole drag: lat0/lon0 are being changed
+        // and they define pxS/pyS — otherwise the vessel would run away
+        const F0=frame();
+        CH.drag={mode:'ship', x:ev.clientX, y:ev.clientY, F0,
+                 gx:p[0]+CH.vx, gy:p[1]+CH.vy};
+        setMode('ship');
+      }else{
+        CH.drag={mode:'pan', x:ev.clientX, y:ev.clientY, vx:CH.vx, vy:CH.vy};
+        setMode('pan');
+      }
+      try{ svg.setPointerCapture(ev.pointerId); }catch(e){}
+      svg.classList.add('dragging');
+      ev.preventDefault();
+    });
+    svg.addEventListener('pointermove', ev=>{
+      if(!CH.drag) return;
+      if(CH.drag.mode==='ship'){
+        const p=svgPoint(ev), F0=CH.drag.F0;
+        // the ground displacement of the pointer, in the frozen frame
+        const dE=(p[0]+CH.vx-CH.drag.gx)*F0.m;
+        const dN=-((p[1]+CH.vy)-CH.drag.gy)*F0.m;
+        const k0=Math.cos(F0.lat0*D2R);
+        CH.lat0=clamp(invLat(mercY(F0.lat0)-dN/(CIRC*k0)),-85,85);
+        CH.lon0=invLon(mercX(F0.lon0)+dE/(CIRC*k0));
+        pushPos();
+        draw();
+        return;
+      }
+      const k=CH.vw/Math.max(1,svg.clientWidth);
+      CH.vx=CH.drag.vx-(ev.clientX-CH.drag.x)*k;
+      CH.vy=CH.drag.vy-(ev.clientY-CH.drag.y)*k;
+      draw();
+    });
+    const endDrag=()=>{
+      const wasShip = !!(CH.drag && CH.drag.mode==='ship');
+      CH.drag=null; svg.classList.remove('dragging');
+      setMode(CH.moveShip?'ship':'pan');
+      if(wasShip){ pushPos(); syncUrl(); }
+    };
+    svg.addEventListener('pointerup', endDrag);
+    svg.addEventListener('pointercancel', endDrag);
+    svg.addEventListener('click', ev=>{
+      if(!CH.pickMode || !CH.gref) return;
+      const p=svgPoint(ev), gr=CH.gref;
+      const ix=(p[0]-gr.ox)/gr.k, iy=(p[1]-gr.oy)/gr.k;
+      if(ix<0||iy<0||ix>gr.w||iy>gr.h) return;
+      gr.pick.push({ix,iy});
+      if(gr.pick.length===2)
+        $('mapFileInfo').textContent='two points picked — enter their coordinates and press Apply';
+      draw();
+    });
+
+    // keep the chart in step with the model and with the layer switches
+    const tick=()=>{
+      const S=window.SPS;
+      if(S){
+        const layers=[
+          $('showCircles')?.checked,
+          $('showPP')?.checked,
+          $('showGhostPP')?.checked
+        ].join(',');
+        const sig=S.sig()+'|'+layers;
+        if(sig!==CH.lastSig){ CH.lastSig=sig; draw(); }
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    let rt=null;
+    window.addEventListener('resize', ()=>{ clearTimeout(rt); rt=setTimeout(()=>{ draw(); }, 200); });
+
+    /* the local server is recognised by its own API: it answers api/manoeuvres with JSON.
+       On a static website the answer is the page itself or 404 — then the tiles are taken
+       directly from the Internet and the server-only parts (offline mode, place search,
+       library of manoeuvres on disk) are switched off by themselves. */
+    const NOTE_DEFAULT = $('mapNote').innerHTML;
+    const serverNote = ()=>{
+      if(CH.server){ $('mapNote').innerHTML = NOTE_DEFAULT; return; }
+      $('mapNote').innerHTML='<b style="color:#ffb4a2">This is the web edition.</b> '+
+        'The map tiles are taken directly from the Internet. The offline mode, the place search and the '+
+        'library of manoeuvres on disk need the full application: start it with '+
+        '<b>Launch Ship Pivot Point Simulator.cmd</b> — it serves the tiles, keeps them on disk and stores '+
+        'the saved manoeuvres and the last session.';
+    };
+    serverNote();
+    fetch('api/manoeuvres').then(r=>r.json()).then(()=>{
+      CH.server = true; CH.lastKey = ''; serverNote();
+      const offBox=$('mapOffline');
+      if(offBox && CH.offline){ offBox.checked=false; CH.offline=false; }
+      draw();
+    }).catch(()=>{ CH.server = false; serverNote(); });
+    // the first fit waits for the layout, so that the zoom matches the real size of the chart
+    requestAnimationFrame(()=>{ fitManoeuvre(); draw(); });
+    window.addEventListener('load', ()=>{ fitManoeuvre(); draw(); });
+  }
+
+  /* ---------------- cache & search (server side) ---------------- */
+  async function cacheView(){
+    const ts=visibleTiles(); if(!ts.length) return;
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+    for(const t of ts){ x0=Math.min(x0,t.x); x1=Math.max(x1,t.x); y0=Math.min(y0,t.y); y1=Math.max(y1,t.y); }
+    const layers=[CH.layer]; if(CH.overlay) layers.push(CH.overlay);
+    $('mapCacheStat').textContent='starting…';
+    try{
+      const r=await fetch(`/api/prefetch?z=${CH.z}&x0=${x0}&x1=${x1}&y0=${y0}&y1=${y1}&layers=${layers.join(',')}`);
+      const j=await r.json();
+      if(j.error){ $('mapCacheStat').textContent=j.error; return; }
+      const poll=async()=>{
+        const q=await (await fetch('/api/job?id='+j.job)).json();
+        $('mapCacheStat').textContent=`${q.done}/${q.total} (${q.failed||0} failed)`;
+        if(q.status!=='done') setTimeout(poll,700);
+        else $('mapCacheStat').textContent=`cached ${q.done} tiles, ${q.failed||0} failed`;
+      };
+      poll();
+    }catch(e){ $('mapCacheStat').textContent='the local server is not running'; }
+  }
+  async function findPlace(){
+    const q=$('mapFind').value.trim();
+    if(!q) return;
+    if(!CH.server){ $('mapFileInfo').textContent='the search needs the local server'; return; }
+    try{
+      const j=await (await fetch('/api/geocode?q='+encodeURIComponent(q))).json();
+      if(j.error){ $('mapFileInfo').textContent=j.error; return; }
+      if(!j.results || !j.results.length){ $('mapFileInfo').textContent='nothing found'; return; }
+      const p=j.results[0];
+      CH.lat0=p.lat; CH.lon0=p.lon;
+      $('mapLat').value=p.lat.toFixed(6); $('mapLon').value=p.lon.toFixed(6);
+      $('mapFileInfo').textContent='found: '+p.display;
+      fitManoeuvre(); draw(); syncUrl();
+    }catch(e){ $('mapFileInfo').textContent='search failed'; }
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>
